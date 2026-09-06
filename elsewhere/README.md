@@ -30,6 +30,7 @@ The proposed ranking and nicheness methods are our product design, not Beli's pr
 - Choose a search city from the header or menu. Only SLO has catalog entries; other cities show an empty state. My location searches the existing catalog nearby and does not fetch new venues.
 - Open an activity detail page modeled on the Beli restaurant page inspected through iPhone Mirroring: map header, venue title, rank/save actions, compact website/directions links, separate personal/friends/community score circles, nicheness and practical details. No unrelated or fabricated venue photos are used.
 - Open and dismiss menus with independently animated backdrop opacity and measured sheet movement, including reduced-motion support and retained closing content.
+- Browse a Beli-style Friends feed with compact activity posts, enjoyment score circles, friend search and profiles, comments, likes, saves, ranking shortcuts, and copyable shares. Social profiles and posts are examples; feed interactions stay on this device and do not send messages to other people.
 
 ## Data and attribution
 

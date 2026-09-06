@@ -41,6 +41,7 @@ import {
 import ExperienceMap from "./src/components/ExperienceMap";
 import BottomSheet from "./src/components/Sheet";
 import ActivityDetail from "./src/components/ActivityDetail";
+import FriendsPage from "./src/components/FriendsPage";
 import { getNicheness } from "./src/data/nicheness";
 import {
   answerRanking,
@@ -1506,6 +1507,20 @@ function Elsewhere() {
             )}
           </View>
         )}
+        {page === "friends" ? (
+          <FriendsPage
+            savedIds={data.saved}
+            showExamples={data.demoSocial}
+            onExperience={detail}
+            onSave={save}
+            onRank={log}
+            onGuide={guide}
+            onNearby={() => {
+              setMap(true);
+              nav("discover");
+            }}
+          />
+        ) : (
         <ScrollView
           ref={scroll}
           style={{ flex: 1 }}
@@ -1520,26 +1535,9 @@ function Elsewhere() {
             guideView()
           ) : page === "you" ? (
             profile()
-          ) : (
-            <View style={[s.pad, s.stack]}>
-              <T style={s.title}>From people you trust</T>
-              <T style={s.muted}>
-                A city feels smaller with a good recommendation.
-              </T>
-              {teaser()}
-              <View style={s.notice}>
-                <T style={s.eyebrow}>A GOOD DAY, SHARED</T>
-                <T>Emma’s picks for a slow afternoon in SLO.</T>
-                <T style={s.muted}>
-                  Art, a garden walk, and something handmade.
-                </T>
-              </View>
-              <Button secondary onPress={() => guide("you")}>
-                My city guide
-              </Button>
-            </View>
-          )}
+          ) : null}
         </ScrollView>
+        )}
         <View style={s.nav}>
           {[
             ["discover", "compass-outline", "Discover"],
@@ -1549,7 +1547,8 @@ function Elsewhere() {
           ].map(([p, icon, label]) => {
             const active =
               page === p ||
-              (page === "detail" && p === "discover") ||
+              (page === "detail" &&
+                p === (returnPage.current === "guide" ? "friends" : returnPage.current)) ||
               (page === "guide" && p === "friends");
             return (
               <Pressable
