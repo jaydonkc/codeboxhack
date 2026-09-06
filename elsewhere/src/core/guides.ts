@@ -11,8 +11,15 @@ export type CityGuide = {
   }[];
 };
 
+export function guideCityName(city: string): string {
+  const name = city.trim().replace(/\s+/g, " ");
+  // The original SLO catalog used a proximity label for the botanical garden.
+  // Keep its venue location intact while grouping it with the same city guide.
+  return /^near san luis obispo$/i.test(name) ? "San Luis Obispo" : name;
+}
+
 export function cityKey(city: string): string {
-  return city.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  return guideCityName(city).toLocaleLowerCase();
 }
 
 /** Guides are views of visit history, never a separately maintained list. */
@@ -28,7 +35,7 @@ export function buildCityGuides(
     const experience = byId.get(preference.id);
     if (!experience?.city.trim()) continue;
     const key = cityKey(experience.city);
-    const group = cities.get(key) ?? { city: experience.city.trim(), preferences: [] };
+    const group = cities.get(key) ?? { city: guideCityName(experience.city), preferences: [] };
     group.preferences.push(preference);
     cities.set(key, group);
   }

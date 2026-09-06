@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { catalog, type Experience } from "../data/catalog";
-import { buildCityGuides, cityGuideText } from "./guides";
+import { buildCityGuides, cityGuideText, cityKey } from "./guides";
 import { scorePreferences, type Preference } from "./ranking";
 
 const places: Experience[] = [
@@ -54,4 +54,17 @@ test("ties stay tied, unknown places are omitted, and shares omit private notes"
   assert.ok(!text.includes("Private visit note"));
   assert.ok(text.includes(places[0].sourceUrl));
   assert.deepEqual(buildCityGuides([], places), []);
+});
+
+test("the catalog's nearby-SLO label shares a city guide without changing venue geography", () => {
+  const nearby = { ...catalog[0], id: "nearby", city: "Near San Luis Obispo" };
+  const guides = buildCityGuides([
+    { id: "nearby", band: "liked", rank: 1 },
+    { id: "a", band: "liked", rank: 2 },
+  ], [...places, nearby]);
+  assert.equal(guides.length, 1);
+  assert.equal(guides[0].city, "San Luis Obispo");
+  assert.equal(guides[0].key, cityKey(nearby.city));
+  assert.equal(guides[0].entries[0].experience.city, "Near San Luis Obispo");
+  assert.equal(guides[0].entries.length, 2);
 });

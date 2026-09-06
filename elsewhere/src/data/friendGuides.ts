@@ -1,6 +1,6 @@
 import { catalog } from "./catalog";
 import { friendFeed, type FriendId } from "./friends";
-import { cityKey, type CityGuide } from "../core/guides";
+import { cityKey, guideCityName, type CityGuide } from "../core/guides";
 
 // Fictional visit history supplements the recent events shown in the feed.
 const history: Record<string, readonly (readonly [string, number])[]> = {
@@ -26,7 +26,7 @@ export function friendCityGuides(authorId: FriendId): CityGuide[] {
     const experience = catalog.find(item => item.id === visit.experienceId);
     if (!experience) continue;
     const key = cityKey(experience.city);
-    const guide = groups.get(key) ?? { key, city: experience.city, entries: [] };
+    const guide = groups.get(key) ?? { key, city: guideCityName(experience.city), entries: [] };
     const previous = guide.entries.at(-1);
     guide.entries.push({ experience, score: visit.score,
       position: previous?.score === visit.score ? previous.position : guide.entries.length + 1 });
