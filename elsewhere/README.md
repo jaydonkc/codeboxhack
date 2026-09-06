@@ -6,10 +6,11 @@ Expo / React Native prototype for discovering experiences in San Luis Obispo. Th
 
 ```sh
 npm install
+npx expo login --browser
 npm start
 ```
 
-Scan the QR code with Expo Go (SDK 57). Use a phone and computer on the same network. `npm run web` starts the browser version. An Expo development server must remain running for the phone demo.
+Sign in to the **same Expo account in the CLI and Expo Go on iPhone**, then scan the QR code with Expo Go (SDK 57). This is required by the current iOS Expo Go release; see [Expo's login requirement](https://expo.dev/changelog/expo-go-57-login). Use a phone and computer on the same network. `npm run web` starts the browser version. An Expo development server must remain running for the phone demo.
 
 ## Scope
 
