@@ -1,5 +1,8 @@
 import type { PlacesRequest, PlacesResponse } from "./placesTypes";
-export const placesUrl = process.env.EXPO_PUBLIC_PLACES_API_URL?.replace(/\/$/, "") ?? "";
+import Constants from "expo-constants";
+const devHost = Constants.expoConfig?.hostUri;
+const tunnelHost = devHost && /^[\w.-]+\.ngrok-free\.(dev|app)(?::\d+)?$/.test(devHost) ? devHost : undefined;
+export const placesUrl = tunnelHost ? `https://${tunnelHost}` : process.env.EXPO_PUBLIC_PLACES_API_URL?.replace(/\/$/, "") ?? "";
 export const livePlacesEnabled = !!placesUrl;
 export async function requestPlaces(body: PlacesRequest, signal?: AbortSignal): Promise<PlacesResponse> {
   if (!placesUrl) throw new Error("Live discovery isn’t connected yet. You can explore the sample collection.");

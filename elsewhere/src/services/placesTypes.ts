@@ -5,12 +5,15 @@ export type PlacesRequest =
   | { action: "cities"; query: string }
   | { action: "city"; id: string }
   | { action: "details"; id: string }
+  | { action: "photo"; id: string; index: number }
   | { action: "search"; origin: SearchOrigin; radius: number; query?: string; bounds?: MapBounds; pageToken?: string };
 export type PlacesResponse = {
   cities?: CitySuggestion[];
   city?: { label: string; origin: SearchOrigin };
   experiences?: Experience[];
   nextPageToken?: string;
+  photoCount?: number;
+  photo?: { uri: string; authors: { name: string; url?: string }[] };
 };
 export const isGoogleId = (id: unknown): id is string => typeof id === "string" && /^google:[A-Za-z0-9_-]{1,256}$/.test(id);
 export const placeId = (id: string) => id.replace(/^google:/, "");

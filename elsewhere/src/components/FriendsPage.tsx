@@ -23,10 +23,15 @@ import { C, fonts } from "../theme";
 import { friendCityGuides } from "../data/friendGuides";
 import { cityGuideText, cityKey } from "../core/guides";
 import Sheet from "./Sheet";
+import { deleteOwnComment, deleteOwnRequest, editOwnComment, editOwnRequest, type OwnRequest, type SocialState } from "../core/social";
+import { canExportActivity, type Viewer } from "../core/submissions";
 
 export type FriendsPageProps = {
   savedIds: string[];
   showExamples: boolean;
+  hiddenActivityIds?: readonly string[];
+  blockedCreatorIds?: readonly string[];
+  onBlockCreator?: (id: FriendId) => void;
   onExperience: (id: string) => void;
   onSave: (id: string) => void;
   onRank: (id: string) => void;
@@ -36,35 +41,19 @@ export type FriendsPageProps = {
 };
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
-type OwnRequest = {
-  id: string;
-  kind: "request";
-  authorId: "you";
-  city: string;
-  title: string;
-  timeLabel: string;
-  note: string;
-  likes: number;
-  comments: [];
-  suggestedExperienceIds: string[];
-};
 type FeedPost = FriendEvent | OwnRequest;
-type LocalComment = { id: string; text: string };
-type SocialState = {
-  placeholderVersion?: number;
-  likes: string[];
-  followed: FriendId[];
-  comments: Record<string, LocalComment[]>;
-  requests: OwnRequest[];
-};
 type Dialog =
   | { kind: "friends" }
   | { kind: "profile"; id: FriendId }
   | { kind: "comments"; post: FeedPost }
   | { kind: "share"; post: FeedPost }
-  | { kind: "compose" }
+  | { kind: "compose"; requestId?: string }
+  | { kind: "request-actions"; requestId: string }
+  | { kind: "delete-request"; requestId: string }
+  | { kind: "delete-comment"; post: FeedPost; commentId: string }
   | null;
 const STORAGE_KEY = "elsewhere-friends-v1";
+let pendingWrites: Promise<void> = Promise.resolve();
 const emptyState: SocialState = {
   placeholderVersion: 1,
   likes: [],
@@ -183,14 +172,16 @@ function validStoredState(value: unknown): value is SocialState {
   );
 }
 
-function shareText(post: FeedPost) {
+function shareText(post: FeedPost, viewer: Viewer) {
+  if (viewer.blockedCreatorIds?.includes(post.authorId)) return "This person's activity is blocked.";
   if (post.kind === "ranked" || post.kind === "bookmarked") {
     const activity = byId(post.experienceId);
+    if (!canExportActivity(activity, viewer)) return "This activity is not available for sharing.";
     return `${activity.name}\n${activity.venue} · ${activity.city}\n${post.note}\n${activity.sourceUrl}`;
   }
   if (post.kind === "guide") {
     const guide = friendCityGuides(post.owner).find(guide => guide.key === cityKey(post.city));
-    return guide ? cityGuideText(guide, friendById(post.owner).name) : post.title;
+    return guide ? cityGuideText(guide, friendById(post.owner).name, viewer) : post.title;
   }
   return `${post.title}\n${post.city}\n${post.note}`;
 }
@@ -198,6 +189,9 @@ function shareText(post: FeedPost) {
 export default function FriendsPage({
   savedIds,
   showExamples,
+  hiddenActivityIds = [],
+  blockedCreatorIds = [],
+  onBlockCreator,
   onExperience,
   onSave,
   onRank,
@@ -210,6 +204,7 @@ export default function FriendsPage({
   const [memberQuery, setMemberQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [comment, setComment] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [requestCity, setRequestCity] = useState("San Luis Obispo");
   const [requestText, setRequestText] = useState("");
   const [copied, setCopied] = useState(false);
@@ -217,7 +212,7 @@ export default function FriendsPage({
 
   useEffect(() => {
     let alive = true;
-    AsyncStorage.getItem(STORAGE_KEY)
+    pendingWrites.then(() => AsyncStorage.getItem(STORAGE_KEY))
       .then((raw) => {
         if (!alive || !raw) return;
         const parsed: unknown = JSON.parse(raw);
@@ -235,9 +230,9 @@ export default function FriendsPage({
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(social)).catch(() =>
-      setNotice("Your latest changes could not be saved."),
-    );
+    pendingWrites = pendingWrites.then(() => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(social))).catch(() => {
+      setNotice("Your latest changes could not be saved.");
+    });
   }, [social, loaded]);
   useEffect(() => {
     if (!notice) return;
@@ -254,10 +249,16 @@ export default function FriendsPage({
     ],
     [social.requests, social.followed, showExamples],
   );
-  const visiblePosts = allPosts;
+  const visiblePosts = allPosts.filter(post => !blockedCreatorIds.includes(post.authorId)
+    && !("experienceId" in post && hiddenActivityIds.includes(post.experienceId)));
   const open = (next: NonNullable<Dialog>) => {
-    setComment("");
+    setComment(""); setEditingCommentId(null);
     setCopied(false);
+    if (next.kind === "compose") {
+      const request = social.requests.find(p => p.id === next.requestId);
+      setRequestCity(request?.city ?? "San Luis Obispo");
+      setRequestText(request?.note ?? "");
+    }
     setDialog(next);
   };
   const openProfile = (id: FriendId | "you") => {
@@ -344,6 +345,7 @@ export default function FriendsPage({
                     : ""}
             </Text>
           </Pressable>
+          {post.authorId === "you" && <IconButton icon="ellipsis-horizontal" label={`Options for ${postTitle(post)}`} onPress={() => open({ kind: "request-actions", requestId: post.id })} />}
           {post.kind === "ranked" && (
             <Pressable
               accessibilityRole="button"
@@ -471,6 +473,7 @@ export default function FriendsPage({
     );
   };
 
+  const managedRequest = dialog && "requestId" in dialog ? social.requests.find(p => p.id === dialog.requestId) : undefined;
   const dialogTitle =
     dialog?.kind === "friends"
       ? "Search members"
@@ -480,7 +483,10 @@ export default function FriendsPage({
             ? "Comments"
             : dialog?.kind === "share"
               ? "Share"
-              : "Ask your friends";
+              : dialog?.kind === "request-actions" ? "Your request"
+              : dialog?.kind === "delete-request" ? "Delete request"
+              : dialog?.kind === "delete-comment" ? "Delete comment"
+              : managedRequest ? "Edit request" : "Ask your friends";
   return (
     <View style={f.root}>
       <View style={f.fixedTools}>
@@ -564,7 +570,7 @@ export default function FriendsPage({
                 />
               </View>
               {(showExamples
-                ? friends.filter((person) =>
+                ? friends.filter(person => !blockedCreatorIds.includes(person.id)).filter((person) =>
                     `${person.name} ${person.handle}`
                       .toLowerCase()
                       .includes(memberQuery.trim().toLowerCase()),
@@ -620,6 +626,7 @@ export default function FriendsPage({
                       {following ? "Following" : "Follow"}
                     </Text>
                   </Pressable>
+                  {onBlockCreator && <Pressable accessibilityRole="button" accessibilityLabel={`Block ${person.name}`} onPress={() => { onBlockCreator(person.id); setDialog(null); }} style={f.textAction}><Text style={[f.link, { color: C.coral }]}>Block {person.name}</Text></Pressable>}
                   {friendCityGuides(person.id).length > 0 && <>
                     <Text style={[f.eyebrow, { marginTop: 16 }]}>City guides</Text>
                     {friendCityGuides(person.id).map(guide => <Pressable key={guide.key} accessibilityRole="button"
@@ -636,16 +643,37 @@ export default function FriendsPage({
                   </Text>
                   <View style={f.profilePosts}>
                     {friendFeed
-                      .filter((post) => post.authorId === person.id)
+                      .filter((post) => post.authorId === person.id && !("experienceId" in post && hiddenActivityIds.includes(post.experienceId)))
                       .map(renderPost)}
                   </View>
                 </>
               );
             })()}
+          {dialog?.kind === "request-actions" && managedRequest && <>
+            <Text style={f.dialogIntro}>{managedRequest.title}</Text>
+            <Pressable accessibilityRole="button" style={f.primary} onPress={() => open({ kind: "compose", requestId: managedRequest.id })}><Text style={f.primaryText}>Edit request</Text></Pressable>
+            <Pressable accessibilityRole="button" style={[f.primary, { backgroundColor: "transparent", borderWidth: 1, borderColor: C.coral }]} onPress={() => open({ kind: "delete-request", requestId: managedRequest.id })}><Text style={{ color: C.coral, fontFamily: fonts.bold }}>Delete request</Text></Pressable>
+          </>}
+          {dialog?.kind === "delete-request" && managedRequest && <>
+            <Text style={f.dialogIntro}>Delete this request and its comments from your feed?</Text>
+            <Text style={f.note}>{managedRequest.title}</Text>
+            <Pressable accessibilityRole="button" style={[f.primary, { backgroundColor: C.coral }]} onPress={() => {
+              setSocial(value => deleteOwnRequest(value, managedRequest.id)); setDialog(null); setNotice("Request deleted.");
+            }}><Text style={f.primaryText}>Delete request</Text></Pressable>
+            <Pressable accessibilityRole="button" style={f.textAction} onPress={() => open({ kind: "request-actions", requestId: managedRequest.id })}><Text style={f.link}>Cancel</Text></Pressable>
+          </>}
+          {dialog?.kind === "delete-comment" && <>
+            <Text style={f.dialogIntro}>Delete your comment? This cannot be undone.</Text>
+            <Text style={f.note}>{social.comments[dialog.post.id]?.find(c => c.id === dialog.commentId)?.text}</Text>
+            <Pressable accessibilityRole="button" style={[f.primary, { backgroundColor: C.coral }]} onPress={() => {
+              setSocial(value => deleteOwnComment(value, dialog.post.id, dialog.commentId)); open({ kind: "comments", post: dialog.post }); setNotice("Comment deleted.");
+            }}><Text style={f.primaryText}>Delete comment</Text></Pressable>
+            <Pressable accessibilityRole="button" style={f.textAction} onPress={() => open({ kind: "comments", post: dialog.post })}><Text style={f.link}>Cancel</Text></Pressable>
+          </>}
           {dialog?.kind === "comments" && (
             <>
               <Text style={f.dialogIntro}>{postTitle(dialog.post)}</Text>
-              {dialog.post.comments.map((item) => (
+              {dialog.post.comments.filter(item => !blockedCreatorIds.includes(item.authorId)).map((item) => (
                 <View style={f.commentRow} key={item.id}>
                   <Avatar
                     id={item.authorId}
@@ -665,6 +693,10 @@ export default function FriendsPage({
                   <View style={f.memberText}>
                     <Text style={f.memberName}>You</Text>
                     <Text style={f.note}>{item.text}</Text>
+                    <View style={f.actionGroup}>
+                      <IconButton icon="create-outline" label="Edit your comment" onPress={() => { setEditingCommentId(item.id); setComment(item.text); }} />
+                      <IconButton icon="trash-outline" label="Delete your comment" onPress={() => open({ kind: "delete-comment", post: dialog.post, commentId: item.id })} />
+                    </View>
                   </View>
                 </View>
               ))}
@@ -672,9 +704,10 @@ export default function FriendsPage({
                 !social.comments[dialog.post.id]?.length && (
                   <Text style={f.emptyText}>Start the conversation.</Text>
                 )}
+              {editingCommentId && <View style={f.actionGroup}><Text style={f.link}>Editing your comment</Text><Pressable accessibilityRole="button" style={f.textAction} onPress={() => { setEditingCommentId(null); setComment(""); }}><Text style={f.link}>Cancel edit</Text></Pressable></View>}
               <View style={f.commentInputRow}>
                 <TextInput
-                  accessibilityLabel="Write a comment"
+                  accessibilityLabel={editingCommentId ? "Edit comment text" : "Write a comment"}
                   placeholder="Write a comment…"
                   placeholderTextColor={C.muted}
                   style={f.commentInput}
@@ -685,14 +718,14 @@ export default function FriendsPage({
                 />
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Add comment"
+                  accessibilityLabel={editingCommentId ? "Save comment" : "Add comment"}
                   disabled={!comment.trim() || !loaded}
                   style={[f.sendButton, !comment.trim() && f.disabled]}
                   onPress={() => {
                     const postId = dialog.post.id;
                     const text = comment.trim();
                     if (!text) return;
-                    setSocial((value) => ({
+                    setSocial((value) => editingCommentId ? editOwnComment(value, postId, editingCommentId, text) : ({
                       ...value,
                       comments: {
                         ...value.comments,
@@ -702,7 +735,7 @@ export default function FriendsPage({
                         ],
                       },
                     }));
-                    setComment("");
+                    setEditingCommentId(null); setComment("");
                   }}
                 >
                   <Ionicons name="arrow-up" color={C.greenInk} size={22} />
@@ -715,7 +748,7 @@ export default function FriendsPage({
               <Text style={f.dialogIntro}>Send a little inspiration.</Text>
               <View style={f.sharePreview}>
                 <Text selectable style={f.note}>
-                  {shareText(dialog.post)}
+                  {shareText(dialog.post, { hiddenIds: hiddenActivityIds, blockedCreatorIds })}
                 </Text>
               </View>
               <Pressable
@@ -723,7 +756,7 @@ export default function FriendsPage({
                 style={f.primary}
                 onPress={async () => {
                   try {
-                    await Clipboard.setStringAsync(shareText(dialog.post));
+                    await Clipboard.setStringAsync(shareText(dialog.post, { hiddenIds: hiddenActivityIds, blockedCreatorIds }));
                     setCopied(true);
                   } catch {
                     setNotice(
@@ -792,7 +825,7 @@ export default function FriendsPage({
                     comments: [],
                     suggestedExperienceIds: [],
                   };
-                  setSocial((value) => ({
+                  setSocial((value) => dialog.requestId ? editOwnRequest(value, dialog.requestId, city, note) : ({
                     ...value,
                     requests: [post, ...value.requests],
                   }));
@@ -800,7 +833,7 @@ export default function FriendsPage({
                   setDialog(null);
                 }}
               >
-                <Text style={f.primaryText}>Add to your feed</Text>
+                <Text style={f.primaryText}>{managedRequest ? "Save request" : "Add to your feed"}</Text>
               </Pressable>
             </>
           )}
@@ -836,6 +869,7 @@ const f = StyleSheet.create({
     fontSize: 14,
     paddingVertical: 10,
   },
+  textAction: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", alignItems: "center" },
   clear: {
     width: 30,
     height: 40,

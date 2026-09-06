@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { C, fonts } from "../theme";
 import type { CityGuide } from "../core/guides";
 import ExperienceMap from "./ExperienceMap";
+import { hasMapCoordinates } from "../core/library";
 
 export default function CityGuidePage({ guide, owner, savedIds, onBack, onShare, onExperience, onSave }: {
   guide: CityGuide | undefined;
@@ -15,7 +16,9 @@ export default function CityGuidePage({ guide, owner, savedIds, onBack, onShare,
   onSave: (id: string) => void;
 }) {
   const [map, setMap] = useState(false);
-  const firstPlace = guide?.entries.find(({ experience }) => experience.lat !== null && experience.lng !== null)?.experience;
+  const mappedEntries = guide?.entries.filter(({ experience }) => hasMapCoordinates(experience)) ?? [];
+  const unmappedCount = (guide?.entries.length ?? 0) - mappedEntries.length;
+  const firstPlace = mappedEntries[0]?.experience;
   const origin = firstPlace ? { lat: firstPlace.lat!, lng: firstPlace.lng! } : undefined;
   return <View style={g.page}>
     <View style={g.toolbar}>
@@ -24,14 +27,15 @@ export default function CityGuidePage({ guide, owner, savedIds, onBack, onShare,
       <Pressable accessibilityRole="button" accessibilityLabel="Share city guide" disabled={!guide} onPress={onShare} style={g.icon}><Ionicons name="share-outline" size={23} color={C.ink}/></Pressable>
     </View>
     <Text style={g.title}>{guide?.city ?? "City guide"}</Text>
-    <Text style={g.subtitle}>{owner} · {guide?.entries.length ?? 0} experiences visited</Text>
+    <Text style={g.subtitle}>{owner} · {guide?.entries.length ?? 0} {guide?.entries.length === 1 ? "experience" : "experiences"} visited</Text>
     <View style={g.controls}>
       <Text style={g.sort}><Ionicons name="swap-vertical" size={14}/> Personal ranking</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={map ? "Show guide list" : "Show guide map"} style={g.mapButton} onPress={() => setMap(!map)}>
         <Ionicons name={map ? "list-outline" : "map-outline"} size={17} color={C.green}/><Text style={g.mapLabel}>{map ? "List" : "Map"}</Text>
       </Pressable>
     </View>
-    {map && guide && <View style={g.map}><ExperienceMap items={guide.entries.map(entry => entry.experience)} origin={origin} selected={null} onSelect={onExperience}/></View>}
+    {map && mappedEntries.length > 0 && <View style={g.map}><ExperienceMap items={mappedEntries.map(entry => entry.experience)} origin={origin} selected={null} onSelect={onExperience}/></View>}
+    {map && unmappedCount > 0 && <Text style={g.subtitle}>{unmappedCount === 1 ? "1 place has no map location yet." : `${unmappedCount} places have no map location yet.`} All places remain in the list below.</Text>}
     {guide?.entries.map(({ experience, position, score }) => <View key={experience.id} style={g.row}>
       <Text style={g.position}>{position ?? "—"}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={`Open ${experience.name}`} onPress={() => onExperience(experience.id)} style={g.activity}>

@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta name="referrer" content="origin"><style>html,body,#map{height:100%;width:100%;margin:0;background:#213f47}#status{position:absolute;top:45%;left:15px;right:15px;text-align:center;color:white;font:15px system-ui}.badge{min-width:48px;height:36px;padding:0 9px;box-sizing:border-box;border-radius:18px;border:2px solid #fff9e9;color:#fff9e9;display:flex;align-items:center;justify-content:center;font:700 15px/20px system-ui;box-shadow:0 2px 5px #0004}</style></head><body><div id="map" aria-label="Google Maps activity map"></div><div id="status">Loading map…</div><script>
+let map,pins=[],userPin,lastCenter='',state,loading=false;
+const send=data=>window.ReactNativeWebView?.postMessage(JSON.stringify(data));
+const fail=message=>{document.getElementById('status').textContent=message;send({type:'error',message});};
+window.gm_authFailure=()=>fail('Map could not connect. Please reload and try again.');
+window.elsewhereMapUpdate=async next=>{
+  state=next;
+  if(!map){
+    if(loading)return;
+    loading=true;
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>fail('Map took too long to load. Please retry.'),20000);
+    window.elsewhereGoogleReady=async()=>{
+      try{
+        await google.maps.importLibrary('maps');await google.maps.importLibrary('marker');
+        map=new google.maps.Map(document.getElementById('map'),{center:state.origin||{lat:35.28,lng:-120.6625},zoom:state.compact?15:12,mapId:state.mapId||'DEMO_MAP_ID',disableDefaultUI:true,gestureHandling:state.compact?'none':'greedy',keyboardShortcuts:!state.compact});
+        map.addListener('idle',()=>{const b=map.getBounds();if(b)send({type:'bounds',bounds:{north:b.getNorthEast().lat(),east:b.getNorthEast().lng(),south:b.getSouthWest().lat(),west:b.getSouthWest().lng()}});});
+        clearTimeout(timer);document.getElementById('status').style.display='none';render();send({type:'ready'});
+      }catch{clearTimeout(timer);fail('Map could not load. Please retry.');}
+    };
+    script.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(next.key)+'&loading=async&v=weekly&callback=elsewhereGoogleReady';script.onerror=()=>{clearTimeout(timer);fail('Map could not connect. Please retry.');};document.head.appendChild(script);
+  }else render();
+};
+function render(){
+  const center=JSON.stringify(state.origin);
+  if(state.origin&&center!==lastCenter){map.setCenter(state.origin);map.setZoom(state.compact?15:12);lastCenter=center;}
+  pins.forEach(p=>p.map=null);
+  pins=state.items.map(item=>{
+    const badge=document.createElement('div');badge.className='badge';badge.textContent=item.score==null?'—':item.score.toFixed(1);badge.style.background=item.id===state.selected?'#d66940':item.score==null?'#50635a':'#345c36';
+    const pin=new google.maps.marker.AdvancedMarkerElement({map,position:{lat:item.lat,lng:item.lng},title:item.name+' · '+state.scoreLabel+' '+(item.score==null?'unrated':item.score.toFixed(1)),content:badge,gmpClickable:true,zIndex:item.id===state.selected?1000:1});
+    pin.addListener('click',()=>send({type:'select',id:item.id}));return pin;
+  });
+  if(userPin)userPin.map=null;
+  if(state.userLocation&&!state.compact){const dot=document.createElement('div');Object.assign(dot.style,{width:'14px',height:'14px',borderRadius:'50%',background:'#4285f4',border:'3px solid white',boxShadow:'0 0 0 7px #4285f433'});userPin=new google.maps.marker.AdvancedMarkerElement({map,position:state.userLocation,title:'Your location',content:dot,zIndex:2000});}
+}
+</script></body></html>

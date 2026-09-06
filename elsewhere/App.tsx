@@ -39,6 +39,7 @@ import {
 } from "./src/data/catalog";
 import ExperienceMap from "./src/components/ExperienceMap";
 import FilterSlider from "./src/components/FilterSlider";
+import NichenessRangeSlider from "./src/components/NichenessRangeSlider";
 import Disclosure from "./src/components/Disclosure";
 import BottomSheet from "./src/components/Sheet";
 import ActivityDetail from "./src/components/ActivityDetail";
@@ -50,13 +51,21 @@ import { buildCityGuides, cityGuideText, cityKey, guideCityName } from "./src/co
 import { friendCityGuides } from "./src/data/friendGuides";
 import { friendById, type FriendId } from "./src/data/friends";
 import { matchesIntent, matchesNiche, orderExperiences, type DiscoveryContext, type DiscoveryMode, type DiscoverySort } from "./src/core/discovery";
-import { createCustomExperience, type CustomDraft } from "./src/core/customExperience";
+import { createCustomExperience, draftFromExperience, emptyCustomDraft, updateCustomExperience, type CustomDraft } from "./src/core/customExperience";
+import ActivityEditor from "./src/components/ActivityEditor";
+import SubmissionReview from "./src/components/SubmissionReview";
+import { activityShareText, assertCreationAllowed, audienceLabels, canExportActivity, canViewActivity, emptyCommunity, findDuplicateActivities, isHidden, isPubliclyDiscoverable, limitDiscoveryTrials, reportActivity, restoreCommunity, restoreSubmission, reviewActivity, statusLabels, submissionOf, type CommunityState } from "./src/core/submissions";
 import PlaceAttribution from "./src/components/PlaceAttribution";
 import { useDeviceLocation } from "./src/components/useDeviceLocation";
 import { livePlacesEnabled, requestPlaces } from "./src/services/places";
 import { isGoogleId, unresolvedPlace, type CitySuggestion } from "./src/services/placesTypes";
 import { usePlaceSearch } from "./src/services/usePlaceSearch";
+import { PhotoProvider, usePhotos } from "./src/services/PhotoProvider";
+import PhotoPicker from "./src/components/PhotoPicker";
+import { photosForPlace } from "./src/core/photos";
+import { usePhotoDraft } from "./src/services/usePhotoDraft";
 import { getNicheness } from "./src/data/nicheness";
+import { deleteCustomPlace, hasMapCoordinates, removeVisit, updateVisitDetails } from "./src/core/library";
 import {
   answerRanking,
   Band,
@@ -74,11 +83,19 @@ type Page = "discover" | "lists" | "friends" | "leaderboard" | "you" | "detail" 
 type Sheet =
   | "rank"
   | "add-experience"
+  | "my-activities"
+  | "activity-map"
+  | "report-activity"
+  | "hidden-activities"
+  | "review-activities"
   | "distance"
   | "sort"
   | "filters"
   | "city"
   | "log"
+  | "edit-visit"
+  | "remove-visit"
+  | "delete-place"
   | "niche"
   | "share"
   | "menu"
@@ -97,6 +114,7 @@ type Stored = {
   city: string;
   cityPlaceId?: string;
   customExperiences: Experience[];
+  community: CommunityState;
 };
 const seed: Preference[] = [
   { id: "bishop-peak", band: "liked", rank: 1, again: true, note: "Great views. Go early." },
@@ -129,6 +147,7 @@ const fresh: Stored = {
   demoSocial: true,
   city: "San Luis Obispo",
   customExperiences: [],
+  community: emptyCommunity,
 };
 const bands: Record<Band, string> = {
   liked: "Liked it",
@@ -174,18 +193,24 @@ function Button({
   children,
   onPress,
   secondary = false,
+  disabled = false,
+  destructive = false,
 }: {
   children: React.ReactNode;
   onPress: () => void;
   secondary?: boolean;
+  disabled?: boolean;
+  destructive?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={secondary ? s.secondary : s.primary}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
+      style={[secondary || destructive ? s.secondary : s.primary, destructive && { borderColor: C.coral }, disabled && { opacity: 0.45 }]}
     >
-      <T style={secondary ? { fontFamily: fonts.medium } : s.primaryText}>
+      <T style={destructive ? { color: C.coral, fontFamily: fonts.medium } : secondary ? { fontFamily: fonts.medium } : s.primaryText}>
         {children}
       </T>
     </Pressable>
@@ -229,19 +254,29 @@ export default function App() {
     );
   return (
     <SafeAreaProvider>
-      <Elsewhere />
+      <PhotoProvider><Elsewhere /></PhotoProvider>
     </SafeAreaProvider>
   );
 }
 function Elsewhere() {
+  const photoStorage = usePhotos();
+  const [visitPhotos, setVisitPhotos] = usePhotoDraft();
+  const [savingVisit, setSavingVisit] = useState(false);
+  const savingVisitRef = useRef(false);
+  const [visitError, setVisitError] = useState("");
   const [data, setData] = useState<Stored>(() => seedLists(fresh)),
     [hydrated, setHydrated] = useState(false),
     [page, setPage] = useState<Page>("friends"),
     [sheet, setSheet] = useState<Sheet>(null);
   const [selected, setSelected] = useState("sloma"),
     [listTab, setListTab] = useState("done"),
-    [map, setMap] = useState(false),
+    [discoveryMap, setDiscoveryMap] = useState(false),
     [audience, setAudience] = useState<"Friends" | "Everyone">("Friends");
+  const [listMap, setListMap] = useState(false);
+  const map = page === "lists" ? listMap : discoveryMap;
+  const setMap = page === "lists" ? setListMap : setDiscoveryMap;
+  const [mapFocusId, setMapFocusId] = useState<string | null>(null);
+  const [keepRemovedSaved, setKeepRemovedSaved] = useState(true);
   const [sort, setSort] = useState<DiscoverySort>("for-you");
   const [draftFilters, setDraftFilters] = useState<Filters>({ budget: null, radius: null, duration: null, vibes: [], query: "" });
   const [draftNiche, setDraftNiche] = useState<[number, number]>([0, 10]);
@@ -251,7 +286,6 @@ function Elsewhere() {
   const [draftListCity, setDraftListCity] = useState<string | null>(null);
   const [rankQuery, setRankQuery] = useState("");
   const [rankSearchQuery, setRankSearchQuery] = useState("");
-  const addIntent = useRef<"save" | "rank">("save");
   const rankFromNav = useRef(false);
   const cityDestination = useRef<Sheet>(null);
   const [nicheDirection, setNicheDirection] = useState<"asc" | "desc">("desc");
@@ -268,7 +302,10 @@ function Elsewhere() {
   const [originLabel, setOriginLabel] = useState("Choose location");
   const [sampleMode, setSampleMode] = useState(!livePlacesEnabled);
   const [submittedQuery, setSubmittedQuery] = useState("");
-  const [customDraft, setCustomDraft] = useState<CustomDraft>({ name: "", city: "", activityType: "", description: "", latitude: "", longitude: "" });
+  const [customDraft, setCustomDraft] = useState<CustomDraft>(() => emptyCustomDraft());
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [savingActivity, setSavingActivity] = useState(false);
+  const savingActivityRef = useRef(false);
   const [customError, setCustomError] = useState("");
   const [cities, setCities] = useState<CitySuggestion[]>([]);
   const [cityLoading, setCityLoading] = useState(false);
@@ -278,6 +315,7 @@ function Elsewhere() {
   const live = usePlaceSearch(searchOrigin, filters.radius, filters.bounds, submittedQuery, !sampleMode && hydrated, [...data.saved, ...data.preferences.map(p => p.id)]);
   const rankSearch = usePlaceSearch(searchOrigin ?? (sampleMode ? { lat: 35.28, lng: -120.6625 } : undefined), null, undefined, rankSearchQuery, sheet === "rank" && !!rankSearchQuery, []);
   const catalog = [...sampleCatalog, ...data.customExperiences, ...Object.values({ ...rankSearch.registry, ...live.registry })];
+  const viewer = { id: "you", hiddenIds: data.community.hiddenIds, blockedCreatorIds: data.community.blockedCreatorIds };
   const byId = (id: string): Experience => catalog.find(e => e.id === id) ?? unresolvedPlace(id);
   const [owner, setOwner] = useState<"you" | FriendId>("you"),
     [session, setSession] = useState<RankingSession | null>(null),
@@ -314,7 +352,8 @@ function Elsewhere() {
                 typeof p.city === "string" && p.city.trim()
                   ? p.city
                   : fresh.city,
-              customExperiences: Array.isArray(p.customExperiences) ? p.customExperiences.filter((e: Experience) => typeof e?.id === "string" && e.id.startsWith("user:") && typeof e.name === "string" && typeof e.city === "string" && Array.isArray(e.vibes)) : [],
+              customExperiences: Array.isArray(p.customExperiences) ? p.customExperiences.filter((e: Experience) => typeof e?.id === "string" && e.id.startsWith("user:") && typeof e.name === "string" && typeof e.city === "string" && Array.isArray(e.vibes)).map((e: Experience) => ({ ...e, submission: restoreSubmission(e.submission) })) : [],
+              community: restoreCommunity(p.community),
               saved: p.saved.filter(validId),
               preferences: p.preferences.filter(
                 (r: Preference) =>
@@ -371,11 +410,13 @@ function Elsewhere() {
     done = new Set(data.preferences.map((x) => x.id)),
     x = byId(selected);
   function nav(p: Page) {
+    if (savingVisitRef.current || savingActivityRef.current) return;
     setPage(p);
     setSheet(null);
     scroll.current?.scrollTo({ y: 0, animated: false });
   }
   function detail(id: string) {
+    if (!canViewActivity(byId(id), viewer)) { notify("This activity is not available to you."); return; }
     returnPage.current = page;
     setSelected(id);
     if (isGoogleId(id) && !live.registry[id]) void live.refresh(id).catch(() => notify("Couldn’t load place details. Your saved reference is still available."));
@@ -386,6 +427,7 @@ function Elsewhere() {
     nav("lists");
   }
   function guide(who: "you" | FriendId, city?: string) {
+    if (data.community.blockedCreatorIds.includes(who)) { notify("This person's guides are blocked."); return; }
     if (page !== "guide" && !(page === "detail" && returnPage.current === "guide"))
       guideReturnPage.current = page === "detail" ? returnPage.current : page;
     setOwner(who);
@@ -393,6 +435,7 @@ function Elsewhere() {
     nav("guide");
   }
   function save(id: string) {
+    if (!canViewActivity(byId(id), viewer)) return;
     setData((d) => ({
       ...d,
       saved: d.saved.includes(id)
@@ -401,6 +444,7 @@ function Elsewhere() {
     }));
   }
   function filter(p: Partial<Filters>) {
+    if (p.query !== undefined) setMapFocusId(null);
     setFilters((f) => ({ ...f, ...p }));
   }
   function clearFilters() {
@@ -431,11 +475,14 @@ function Elsewhere() {
     setSheet("city");
   }
   function closeSheet() {
+    if (savingVisitRef.current || savingActivityRef.current) return;
+    if (sheet === "log" || sheet === "edit-visit") setVisitPhotos([]);
     setSheet(sheet === "city" ? cityDestination.current : null);
     cityDestination.current = null;
   }
   const locationLabel = searchOrigin ? originLabel : sampleMode ? data.city : originLabel;
   function useMyLocation(point: SearchOrigin) {
+    setMapFocusId(null);
     setSearchOrigin(point);
     setOriginLabel("Near you");
     setSampleMode(!livePlacesEnabled);
@@ -446,6 +493,7 @@ function Elsewhere() {
   function selectCity(value: string) {
     const trimmed = value.trim();
     if (!trimmed) return;
+    setMapFocusId(null);
     setSampleMode(true);
     setOriginLabel("San Luis Obispo");
     setSearchOrigin({ lat: 35.28, lng: -120.6625 });
@@ -493,6 +541,7 @@ function Elsewhere() {
     try {
       const result = await requestPlaces({ action: "city", id: city.id });
       if (gen !== cityGeneration.current || !result.city) return;
+      setMapFocusId(null);
       setSearchOrigin(result.city.origin); setOriginLabel(city.label); setSampleMode(false);
       setData(d => ({ ...d, city: cityQuery.trim() || d.city, cityPlaceId: city.id }));
       filter({ bounds: undefined }); setSheet(cityDestination.current); cityDestination.current = null;
@@ -500,6 +549,7 @@ function Elsewhere() {
     finally { if (gen === cityGeneration.current) setCityLoading(false); }
   }
   function searchArea(bounds: MapBounds) {
+    setMapFocusId(null);
     const span = (bounds.east - bounds.west + 360) % 360;
     const lng = ((bounds.west + span / 2 + 540) % 360) - 180;
     setSearchOrigin({ lat: (bounds.north + bounds.south) / 2, lng });
@@ -510,10 +560,60 @@ function Elsewhere() {
     rankFromNav.current = fromNav;
     setSelected(id);
     setSession(null);
+    setVisitPhotos([]);
+    setVisitError("");
     const old = data.preferences.find((p) => p.id === id);
     setNote(old?.note || "");
     setAgain(old?.again || false);
     setSheet("log");
+  }
+  function editVisit(id: string) {
+    const current = data.preferences.find(p => p.id === id);
+    if (!current) return;
+    setSelected(id);
+    setNote(current.note ?? "");
+    setAgain(current.again ?? false);
+    setVisitPhotos([]);
+    setVisitError("");
+    setSheet("edit-visit");
+  }
+  async function saveVisitDetails() {
+    if (savingVisitRef.current || !done.has(x.id)) return;
+    savingVisitRef.current = true;
+    setSavingVisit(true); setVisitError("");
+    try {
+      if (visitPhotos.length) await photoStorage.add(x.id, visitPhotos);
+      setData(d => updateVisitDetails(d, x.id, { note, again }));
+      setVisitPhotos([]);
+      setSheet(null);
+      notify("Visit updated. Your ranking stayed the same.");
+    } catch {
+      setVisitError("Photos could not be saved. Try again or remove them to save your changes.");
+    } finally {
+      savingVisitRef.current = false; setSavingVisit(false);
+    }
+  }
+  function requestVisitRemoval() {
+    setKeepRemovedSaved(true);
+    setVisitError("");
+    setSheet("remove-visit");
+  }
+  async function confirmPlaceDeletion() {
+    if (savingVisitRef.current || !data.customExperiences.some(e => e.id === x.id)) return;
+    savingVisitRef.current = true;
+    setSavingVisit(true); setVisitError("");
+    try {
+      await photoStorage.removePlace(x.id);
+      setData(d => deleteCustomPlace(d, x.id));
+      setVisitPhotos([]); setMapFocusId(null);
+      savingVisitRef.current = false;
+      clearFilters(); setListMap(false); nav("lists");
+      notify("Custom place deleted.");
+    } catch {
+      setVisitError("The place could not be deleted. Please try again.");
+    } finally {
+      savingVisitRef.current = false; setSavingVisit(false);
+    }
   }
   function openRank() {
     rankFromNav.current = true;
@@ -521,32 +621,74 @@ function Elsewhere() {
     setRankSearchQuery("");
     setSheet("rank");
   }
-  function addPlace(intent: "save" | "rank", name = "") {
-    addIntent.current = intent;
-    setCustomDraft({ name, city: data.city, activityType: "", description: "", latitude: "", longitude: "" });
+  function addPlace(name = "") {
+    setEditingActivityId(null);
+    setCustomDraft(emptyCustomDraft(data.city, name));
     setCustomError("");
     setSheet("add-experience");
+  }
+  function editActivity() {
+    setEditingActivityId(x.id);
+    setCustomDraft(draftFromExperience(x));
+    setCustomError("");
+    setSheet("add-experience");
+  }
+  async function saveActivity(intent: "rank" | "save") {
+    if (savingActivityRef.current) return;
+    savingActivityRef.current = true; setSavingActivity(true); setCustomError("");
+    try {
+      const duplicates = findDuplicateActivities(customDraft, catalog.filter(e => canViewActivity(e, viewer)), editingActivityId ?? undefined);
+      if (duplicates.length) throw new Error("This activity already exists. Open the existing listing above.");
+      const now = Date.now();
+      if (!editingActivityId) assertCreationAllowed(data.community.creations, "you", now);
+      const item = editingActivityId ? updateCustomExperience(byId(editingActivityId), customDraft, "you", now)
+        : createCustomExperience(customDraft, `user:${now}-${Math.random().toString(36).slice(2, 8)}`, now);
+      const next: Stored = { ...data,
+        customExperiences: editingActivityId ? data.customExperiences.map(e => e.id === item.id ? item : e) : [...data.customExperiences, item],
+        saved: editingActivityId ? data.saved : [...new Set([...data.saved, item.id])],
+        community: { ...data.community, creations: editingActivityId ? data.community.creations : [...data.community.creations, { id: item.id, creatorId: "you", at: new Date(now).toISOString() }] },
+      };
+      // Wait for storage before acknowledging success or allowing a second submission.
+      const write = queue.current.then(() => AsyncStorage.setItem("elsewhere-demo-v1", JSON.stringify(next)));
+      queue.current = write.catch(() => {});
+      await write;
+      setData(next); savingActivityRef.current = false; setMapFocusId(null);
+      if (editingActivityId) { setSheet(null); notify("Activity updated."); }
+      else if (intent === "rank") log(item.id, true);
+      else {
+        setSelected(item.id); setListTab("saved"); setListMap(hasMapCoordinates(item)); clearFilters(); nav("lists");
+        notify(hasMapCoordinates(item) ? "Activity saved to your map." : "Activity saved. Add a map pin whenever you're ready.");
+      }
+    } catch (error) { setCustomError(error instanceof Error ? error.message : "Could not save the activity. Try again."); }
+    finally { savingActivityRef.current = false; setSavingActivity(false); }
   }
   const discoveryContext: DiscoveryContext = {
     catalog, preferences: data.preferences, interests: data.interests,
     audience, social: data.demoSocial ? demoReviews : undefined, origin: searchOrigin,
   };
-  const cityCatalog = sampleMode ? sampleCatalog.filter(e => searchOrigin ? (distance(e, searchOrigin) ?? Infinity) <= (filters.radius ?? 25) : e.city.replace(/^Near /, "").toLowerCase() === data.city.toLowerCase()) : live.items;
-  const listCatalog = [...new Set([...data.saved, ...data.preferences.map(p => p.id)])].map(byId);
-  let results = (page === "lists" ? listCatalog : cityCatalog).filter(e => matches(e, { ...filters, ...(page === "lists" ? { bounds: undefined, radius: null } : {}), query: !sampleMode && page === "discover" ? "" : filters.query }, searchOrigin) && matchesNiche(nicheFor(e.id)?.score ?? null, nicheRange));
+  const inCity = (e: Experience) => searchOrigin ? (distance(e, searchOrigin) ?? Infinity) <= (filters.radius ?? 25) : cityKey(e.city) === cityKey(data.city);
+  const cityCatalog = [...(sampleMode ? sampleCatalog.filter(inCity) : live.items), ...data.customExperiences.filter(e => inCity(e) && isPubliclyDiscoverable(e))].filter(e => !isHidden(e, viewer));
+  const listCatalog = [...new Set([...data.saved, ...data.preferences.map(p => p.id)])].map(byId).filter(e => canViewActivity(e, viewer));
+  const discoveryItems = mapFocusId && isPubliclyDiscoverable(byId(mapFocusId)) && !isHidden(byId(mapFocusId), viewer) ? [...cityCatalog.filter(e => e.id !== mapFocusId), byId(mapFocusId)] : cityCatalog;
+  let results = (page === "lists" ? listCatalog : discoveryItems).filter(e => matches(e, { ...filters, ...(page === "lists" ? { bounds: undefined, radius: null } : {}), query: !sampleMode && page === "discover" ? "" : filters.query }, searchOrigin) && matchesNiche(nicheFor(e.id)?.score ?? null, nicheRange));
   if (page === "lists")
     results = results.filter((e) =>
       (listTab === "saved" ? data.saved.includes(e.id) : done.has(e.id)) && (!listCity || cityKey(e.city) === listCity),
     );
-  if (page === "discover") results = results.filter(e => matchesIntent(e, mode, discoveryContext));
+  if (page === "discover") results = limitDiscoveryTrials(results.filter(e => matchesIntent(e, mode, discoveryContext) && (e.provider === "google" || matches(e, { budget: null, radius: null, duration: null, vibes: [], query: filters.query }, searchOrigin))));
   const personalList = page === "lists" && listTab === "done";
   const rankedOrder = personalList && (sort === "for-you" || sort === "enjoyment");
   results = orderExperiences(results, sort, discoveryContext, id => nicheFor(id)?.score ?? null, rankedOrder, nicheDirection);
-  const ownGuides = buildCityGuides(data.preferences, catalog);
-  const ownerGuides = owner === "you" ? ownGuides : friendCityGuides(owner);
+  const mapScores = Object.fromEntries(results.map(e => [e.id, personalList ? scores[e.id] ?? null : data.demoSocial && demoReviews[e.id]
+    ? demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"] : null]));
+  const mappedResults = results.filter(hasMapCoordinates);
+  const unmappedResults = results.filter(e => !hasMapCoordinates(e));
+  const personalMapFocus = mappedResults.find(e => e.id === selected) ?? mappedResults[0];
+  const ownGuides = buildCityGuides(data.preferences, catalog.filter(e => canViewActivity(e, viewer)));
+  const ownerGuides = owner === "you" ? ownGuides : data.community.blockedCreatorIds.includes(owner) ? [] : friendCityGuides(owner).map(g => ({ ...g, entries: g.entries.filter(({ experience }) => canViewActivity(experience, viewer)) }));
   const activeGuide = guideCity ? ownerGuides.find(g => g.key === guideCity) : ownerGuides[0];
   const guideOwner = owner === "you" ? "You" : friendById(owner).name;
-  const guideText = activeGuide ? cityGuideText(activeGuide, guideOwner) : "";
+  const guideText = activeGuide ? cityGuideText(activeGuide, guideOwner, viewer) : "";
   const official = (url: string) =>
     Linking.openURL(url).catch(() =>
       notify("Could not open the official source."),
@@ -554,8 +696,7 @@ function Elsewhere() {
   const personalPositions = rankPositions(data.preferences);
   function card(e: Experience) {
     const personal = page === "lists" && listTab === "done";
-    const enjoyment = personal ? scores[e.id] : data.demoSocial && demoReviews[e.id]
-      ? demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"] : null;
+    const enjoyment = mapScores[e.id];
     const niche = nicheFor(e.id)?.score;
     const miles = distance(e, searchOrigin);
     return (
@@ -565,7 +706,8 @@ function Elsewhere() {
           <Pressable accessibilityRole="button" accessibilityLabel={`View ${e.venue}`} onPress={() => detail(e.id)} style={{ flex: 1, gap: 5 }}>
             <T style={{ fontFamily: fonts.bold, fontSize: 17, lineHeight: 22 }}>{e.venue}</T>
             <T style={s.tiny}>{e.priceUSD === 0 ? "Free" : e.priceUSD == null ? "Check price" : `$${e.priceUSD}`} · {e.activityType}</T>
-            <T style={s.tiny}>{e.city || "Location unavailable"}{miles == null ? "" : ` · ${miles.toFixed(1)} mi`}</T>
+            <T style={s.tiny}>{e.city || "Location unavailable"}{miles == null ? "" : ` · ${miles.toFixed(1)} mi`}{!hasMapCoordinates(e) ? " · No map location" : ""}</T>
+            {submissionOf(e) && <T style={[s.tiny, { color: C.green }]}>{submissionOf(e)!.audience === "public" ? statusLabels[submissionOf(e)!.status] : audienceLabels[submissionOf(e)!.audience]} · Added by {submissionOf(e)!.creatorName}</T>}
             {e.provider === "google" && <PlaceAttribution item={e} />}
           </Pressable>
           <View style={{ alignItems: "center", width: 66 }}>
@@ -603,7 +745,7 @@ function Elsewhere() {
           <Pill label={nicheRange[0] === 0 && nicheRange[1] === 10 ? "Nicheness" : `Niche ${nicheRange[0]}–${nicheRange[1]}`} active={nicheRange[0] !== 0 || nicheRange[1] !== 10} onPress={() => openFilters("Nicheness")} />
         </ScrollView>
         <View style={[s.between, s.pad, { minHeight: 44 }]}>
-          <T style={s.tiny}>{results.length} places{filters.bounds ? " · map area" : ""}{page === "lists" && !listCity ? " · all cities" : ""}</T>
+          <T style={s.tiny}>{results.length} {results.length === 1 ? "place" : "places"}{page === "discover" && filters.bounds ? " · map area" : ""}{page === "lists" && !listCity ? " · all cities" : ""}</T>
           {!personalList && <Pressable accessibilityRole="button" accessibilityLabel={`Scores from ${audience}. Switch to ${audience === "Friends" ? "Everyone" : "Friends"}`} onPress={() => setAudience(value => value === "Friends" ? "Everyone" : "Friends")} style={[s.row, { minHeight: 44, gap: 4 }]}><T style={s.tiny}>{audience}</T><I name="chevron-down" size={12} color={C.muted} /></Pressable>}
         </View>
         <View style={s.pad}>
@@ -612,8 +754,12 @@ function Elsewhere() {
           {page === "discover" && !sampleMode && live.loading && <ActivityIndicator color={C.green} />}
           {page === "discover" && !sampleMode && !!live.error && <View style={s.stack}><T accessibilityRole="alert" style={s.muted}>{live.error}</T><Button secondary onPress={live.retry}>Retry search</Button></View>}
           {map ? <View style={s.stack}>
-            <ExperienceMap origin={searchOrigin ?? (sampleMode ? { lat: 35.28, lng: -120.6625 } : undefined)} userLocation={deviceLocation.position} onUserLocation={useMyLocation} items={results} selected={selected} onSelect={setSelected} onSearchArea={searchArea} onResetArea={() => filter({ bounds: undefined })} />
-            {results.some(e => e.id === selected) && card(x)}
+            {(mappedResults.length > 0 || !results.length) && <ExperienceMap origin={page === "lists" && personalMapFocus ? { lat: personalMapFocus.lat!, lng: personalMapFocus.lng! } : searchOrigin ?? (sampleMode ? { lat: 35.28, lng: -120.6625 } : undefined)} userLocation={deviceLocation.position} onUserLocation={page === "discover" ? useMyLocation : undefined} items={mappedResults} scores={mapScores} scoreLabel={personalList ? "Your" : audience} selected={selected} onSelect={setSelected} onSearchArea={page === "discover" ? searchArea : undefined} onResetArea={page === "discover" ? () => filter({ bounds: undefined }) : undefined} />}
+            {mappedResults.some(e => e.id === selected) && card(x)}
+            {!!unmappedResults.length && <View style={s.stack}>
+              <T style={s.muted}>{unmappedResults.length === 1 ? "1 place has no map location yet." : `${unmappedResults.length} places have no map location yet.`} You can still open {unmappedResults.length === 1 ? "it" : "them"} below.</T>
+              {unmappedResults.map(card)}
+            </View>}
           </View> : results.map(card)}
           {!results.length && !live.loading && !live.error && (sampleMode || !!searchOrigin || page === "lists") && <View style={s.empty}>
             <I name="search-outline" size={30} color={C.muted} />
@@ -621,17 +767,20 @@ function Elsewhere() {
             <T style={[s.muted, { textAlign: "center" }]}>{page === "lists" && !listCatalog.length ? "Save or rank a place to add it here." : "Try another search or clear your filters."}</T>
             <Button secondary onPress={clearFilters}>Clear filters</Button>
           </View>}
-          <Pressable accessibilityRole="button" onPress={() => addPlace("save", filters.query)} style={[s.row, { minHeight: 52, justifyContent: "center", marginTop: 10 }]}><I name="add" size={18} color={C.green} /><T style={{ color: C.green, fontSize: 14 }}>Add a place</T></Pressable>
+          <Pressable accessibilityRole="button" onPress={() => addPlace(filters.query)} style={[s.row, { minHeight: 52, justifyContent: "center", marginTop: 10 }]}><I name="add" size={18} color={C.green} /><T style={{ color: C.green, fontSize: 14 }}>Add an activity</T></Pressable>
           {!sampleMode && live.nextPageToken && <Button onPress={() => { void live.loadMore(); }}>{live.loading ? "Loading…" : "Load more"}</Button>}
         </View>
       </>}
     </>;
   }
   function showActivityMap() {
-    clearFilters();
-    if (x.lat != null && x.lng != null) { setSearchOrigin({ lat: x.lat, lng: x.lng }); setOriginLabel(x.venue); }
+    if (!hasMapCoordinates(x)) { notify("This place has no map location yet."); return; }
+    if (!isPubliclyDiscoverable(x)) { setSheet("activity-map"); return; }
+    clearFilters(); setMode("all");
+    setSearchOrigin({ lat: x.lat, lng: x.lng }); setOriginLabel(x.venue);
+    setMapFocusId(x.id);
     setSampleMode(x.provider !== "google");
-    setMap(true);
+    setDiscoveryMap(true);
     nav("discover");
     setSelected(x.id);
   }
@@ -642,19 +791,22 @@ function Elsewhere() {
     );
   }
   function detailView() {
+    if (!canViewActivity(x, viewer)) return <View style={s.pad}><T style={s.muted}>This activity is not available to you.</T><Button onPress={() => nav("lists")}>Back to my lists</Button></View>;
     const pref = data.preferences.find((p) => p.id === x.id);
     return (
       <ActivityDetail
         key={x.id}
         activity={x}
-        map={
+        map={hasMapCoordinates(x) ?
           <ExperienceMap
             items={[x]}
+            scores={{ [x.id]: pref ? scores[x.id] : data.demoSocial ? demoReviews[x.id]?.[audience === "Friends" ? "friends" : "everyone"] : null }}
+            scoreLabel={pref ? "Your" : audience}
             selected={x.id}
             onSelect={showActivityMap}
             compact
             height={166}
-          />
+          /> : undefined
         }
         personalScore={pref ? scores[x.id] : undefined}
         saved={data.saved.includes(x.id)}
@@ -666,7 +818,9 @@ function Elsewhere() {
         onBack={() => nav(returnPage.current)}
         onShare={() => setSheet("experience-share")}
         onMore={() => setSheet("experience-actions")}
+        onManageActivity={submissionOf(x)?.creatorId === "you" && submissionOf(x)?.status !== "removed" ? editActivity : undefined}
         onRank={() => log(x.id)}
+        onEditVisit={pref ? () => editVisit(x.id) : undefined}
         onSave={() => save(x.id)}
         onWebsite={() => official(x.sourceUrl)}
         onDirections={activityDirections}
@@ -692,17 +846,30 @@ function Elsewhere() {
     return <View style={[s.pad, s.stack]}>
       <View style={[s.row, { paddingVertical: 16, gap: 16 }]}>
         <Image source={require("./assets/profile/jaydon-beli.png")} accessibilityLabel="Your profile photo" style={{ width: 76, height: 76, borderRadius: 38 }} resizeMode="cover" />
-        <View><T style={s.title}>Jaydon</T><T style={s.muted}>@jaydonkc</T></View>
+        <View><T style={s.title}>Jaydon</T><T style={s.muted}>@jaydonkc · Demo profile</T></View>
       </View>
       <View style={[s.row, { paddingVertical: 16, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.line }]}>
-        {[[data.preferences.length, "Been", "done"], [data.saved.length, "Want to try", "saved"], [ownGuides.length, "Guides", "guides"]].map(([n, label, key]) => <Pressable key={key} accessibilityRole="button" accessibilityLabel={`${label}: ${n}`} onPress={() => { setListTab(String(key)); nav("lists"); }} style={{ flex: 1, alignItems: "center", gap: 4, minHeight: 48 }}><T style={s.title}>{n}</T><T style={s.tiny}>{label}</T></Pressable>)}
+        {[[data.preferences.length, "Been", "done"], [data.saved.length, "Want to try", "saved"], [ownGuides.length, "Guides", "guides"]].map(([n, label, key]) => <Pressable key={key} accessibilityRole="button" accessibilityLabel={`${label}: ${n}`} onPress={() => { setListTab(String(key)); setListMap(false); clearFilters(); nav("lists"); }} style={{ flex: 1, alignItems: "center", gap: 4, minHeight: 48 }}><T style={s.title}>{n}</T><T style={s.tiny}>{label}</T></Pressable>)}
       </View>
       <Disclosure title="Interests" summary={data.interests.join(", ")}>
         <View style={s.wrap}>{VIBES.map(v => <Pill key={v} label={v} active={data.interests.includes(v)} onPress={() => setData(d => ({ ...d, interests: d.interests.includes(v) ? d.interests.filter(z => z !== v) : [...d.interests, v] }))} />)}</View>
       </Disclosure>
       <Pressable accessibilityRole="button" onPress={chooseCity} style={[s.between, { minHeight: 48 }]}><T>Location</T><T style={s.muted}>{locationLabel} ›</T></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => setSheet("my-activities")} style={[s.between, { minHeight: 48 }]}><T>Your activities</T><T style={s.muted}>{data.customExperiences.filter(e => submissionOf(e)?.creatorId === "you").length} ›</T></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => setSheet("hidden-activities")} style={[s.between, { minHeight: 48 }]}><T>Hidden activities and blocked people</T><I name="chevron-forward" color={C.muted} size={18}/></Pressable>
       <Pressable accessibilityRole="button" onPress={() => setSheet("about")} style={[s.between, { minHeight: 48 }]}><T>About Elsewhere</T><I name="chevron-forward" color={C.muted} size={18} /></Pressable>
     </View>;
+  }
+  function visitFields() {
+    return <>
+      <TextInput accessibilityLabel="Experience note" placeholder="Notes (optional)" placeholderTextColor={C.muted} multiline value={note} onChangeText={setNote} editable={!savingVisit} style={[s.inputBox, { minHeight: 85, textAlignVertical: "top" }]} />
+      <View style={s.between}>
+        <T>I’d do this again</T>
+        <Switch accessibilityLabel="I’d do this again" value={again} onValueChange={setAgain} disabled={savingVisit} trackColor={{ true: "#608451", false: C.line }} thumbColor={C.green} />
+      </View>
+      <PhotoPicker assets={visitPhotos} onChange={setVisitPhotos} existingCount={photosForPlace(photoStorage.photos, x.id).length} disabled={savingVisit || !photoStorage.ready} />
+      {!!visitError && <T accessibilityRole="alert" style={{ color: C.coral }}>{visitError}</T>}
+    </>;
   }
   function logView() {
     const opponent = session ? currentOpponent(session) : null,
@@ -711,8 +878,17 @@ function Elsewhere() {
     function answer(a: RankingAnswer) {
       if (session) setSession(answerRanking(session, a));
     }
-    function finish() {
-      if (!session) return;
+    async function finish() {
+      if (!session || savingVisitRef.current) return;
+      savingVisitRef.current = true;
+      setSavingVisit(true); setVisitError("");
+      try {
+        if (visitPhotos.length) await photoStorage.add(x.id, visitPhotos);
+      } catch {
+        setVisitError("Photos could not be saved. Try again or remove them to save your visit.");
+        savingVisitRef.current = false; setSavingVisit(false);
+        return;
+      }
       const next = finishRanking(session, data.preferences).map((p) =>
         p.id === x.id ? { ...p, note, again } : p,
       );
@@ -721,7 +897,13 @@ function Elsewhere() {
         preferences: next,
         saved: d.saved.filter((id) => id !== x.id),
       }));
-      if (rankFromNav.current) { setListTab("done"); clearFilters(); setSort("for-you"); nav("lists"); }
+      setVisitPhotos([]);
+      savingVisitRef.current = false; setSavingVisit(false);
+      if (rankFromNav.current) {
+        setListTab("done"); clearFilters(); setSort("for-you");
+        setListMap(submissionOf(x)?.creatorId === "you" && hasMapCoordinates(x));
+        nav("lists");
+      }
       else setSheet(null);
       notify(
         session.status === "placed"
@@ -807,30 +989,13 @@ function Elsewhere() {
                 finish ranking.
               </T>
             )}
-            <TextInput
-              accessibilityLabel="Experience note"
-              placeholder="Notes (optional)"
-              placeholderTextColor={C.muted}
-              multiline
-              value={note}
-              onChangeText={setNote}
-              style={[s.inputBox, { minHeight: 85, textAlignVertical: "top" }]}
-            />
-            <View style={s.between}>
-              <T>I’d do this again</T>
-              <Switch
-                value={again}
-                onValueChange={setAgain}
-                trackColor={{ true: "#608451", false: C.line }}
-                thumbColor={C.green}
-              />
-            </View>
-            <Button onPress={finish}>
-              {session.status === "placed"
+            {visitFields()}
+            <Button onPress={() => void finish()} disabled={savingVisit}>
+              {savingVisit ? "Saving…" : session.status === "placed"
                 ? "Save to Been"
                 : "Save and rank later"}
             </Button>
-            <Button secondary onPress={() => setSession(null)}>
+            <Button secondary disabled={savingVisit} onPress={() => setSession(null)}>
               Change my reaction
             </Button>
           </>
@@ -841,7 +1006,7 @@ function Elsewhere() {
   function sheetView() {
     if (sheet === "rank") {
       const query = rankQuery.trim().toLocaleLowerCase();
-      const matchesQuery = catalog.filter(e => `${e.venue} ${e.city} ${e.activityType}`.toLocaleLowerCase().includes(query));
+      const matchesQuery = catalog.filter(e => canViewActivity(e, viewer)).filter(e => `${e.venue} ${e.city} ${e.activityType}`.toLocaleLowerCase().includes(query));
       const remote = rankSearchQuery === rankQuery.trim() ? rankSearch.items : [];
       const choices = [...new Map([...matchesQuery, ...remote].map(e => [e.id, e])).values()]
         .sort((a, b) => Number(done.has(a.id)) - Number(done.has(b.id)) || Number(data.saved.includes(b.id)) - Number(data.saved.includes(a.id)));
@@ -858,25 +1023,68 @@ function Elsewhere() {
         </Pressable>)}
         {!choices.length && !rankSearch.loading && <T style={s.muted}>No places found.</T>}
         {livePlacesEnabled && !searchOrigin && <Button secondary onPress={chooseCity}>Choose search location</Button>}
-        <Button secondary onPress={() => addPlace("rank", rankQuery)}>Add a place</Button>
+        <Button secondary onPress={() => addPlace(rankQuery)}>Add an activity</Button>
       </>;
     }
-    if (sheet === "add-experience") return <>
-      {([["name", "Place name"], ["city", "City"], ["activityType", "Activity type (optional)"]] as const).map(([field, label]) => <TextInput key={field} accessibilityLabel={label} placeholder={label} placeholderTextColor={C.muted} value={customDraft[field]} onChangeText={value => setCustomDraft(d => ({ ...d, [field]: value }))} style={s.inputBox} />)}
-      <Disclosure title="Details" summary="Optional">
-        <TextInput accessibilityLabel="Description (optional)" placeholder="Description" placeholderTextColor={C.muted} value={customDraft.description} onChangeText={description => setCustomDraft(d => ({ ...d, description }))} multiline style={s.inputBox} />
-      </Disclosure>
-      {!!customError && <T accessibilityRole="alert" style={s.muted}>{customError}</T>}
-      <Button onPress={() => {
-        try {
-          const item = createCustomExperience(customDraft, `user:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-          setData(d => ({ ...d, customExperiences: [...d.customExperiences, item], saved: [...d.saved, item.id] }));
-          if (addIntent.current === "rank") log(item.id, true);
-          else { setListTab("saved"); clearFilters(); nav("lists"); notify("Added to Want to try."); }
-        } catch (e) { setCustomError(e instanceof Error ? e.message : "Check the place details."); }
-      }}>{addIntent.current === "rank" ? "Continue to rank" : "Save place"}</Button>
+    if (sheet === "add-experience") return <ActivityEditor draft={customDraft} onChange={setCustomDraft} origin={searchOrigin ?? (cityKey(data.city) === cityKey("San Luis Obispo") ? { lat: 35.28, lng: -120.6625 } : undefined)}
+      duplicates={findDuplicateActivities(customDraft, catalog.filter(e => canViewActivity(e, viewer)), editingActivityId ?? undefined)}
+      onExisting={id => { if (!editingActivityId) log(id, true); else detail(id); }}
+      onSave={intent => void saveActivity(intent)} error={customError} busy={savingActivity} editing={!!editingActivityId}/>;
+    if (sheet === "my-activities") return <>
+      <T style={s.muted}>Manage the activities you've added and who can see them.</T>
+      {data.customExperiences.filter(e => submissionOf(e)?.creatorId === "you").map(e => <Pressable key={e.id} accessibilityRole="button" accessibilityLabel={`Manage ${e.name}`} onPress={() => detail(e.id)} style={[s.card, { paddingVertical: 14 }]}>
+        <T style={s.heading}>{e.name}</T><T style={s.tiny}>{audienceLabels[submissionOf(e)!.audience]} · {statusLabels[submissionOf(e)!.status]}</T>
+      </Pressable>)}
+      <Button onPress={() => addPlace()}>Add an activity</Button>
     </>;
+    if (sheet === "activity-map") return <><T style={s.heading}>{x.name}</T><T style={s.tiny}>Your activity · {audienceLabels[submissionOf(x)?.audience ?? "private"]}</T><ExperienceMap items={[x]} scores={{ [x.id]: scores[x.id] }} scoreLabel="Your" selected={x.id} onSelect={() => {}} compact height={280}/></>;
+    if (sheet === "report-activity") return <>
+      <T style={s.heading}>{x.name}</T><T style={s.muted}>Hide this activity and save a report on this device. Reports aren't sent to a moderation service yet.</T>
+      {["Spam or promotion", "Duplicate activity", "Incorrect details", "Visitor access concern"].map(reason => <Button key={reason} secondary onPress={() => {
+        setData(d => ({ ...d, community: reportActivity(d.community, x.id, "you", reason, Date.now()) }));
+        setMapFocusId(null); nav("discover"); notify("Hidden. Report saved on this device.");
+      }}>{reason}</Button>)}
+    </>;
+    if (sheet === "hidden-activities") return <>
+      {!data.community.hiddenIds.length && !data.community.blockedCreatorIds.length && <T style={s.muted}>You haven't hidden any activities or blocked anyone.</T>}
+      {data.community.hiddenIds.map(id => <View key={id} style={s.between}><T style={{ flex: 1 }}>{byId(id).name}</T><Button secondary onPress={() => setData(d => ({ ...d, community: { ...d.community, hiddenIds: d.community.hiddenIds.filter(x => x !== id) } }))}>Unhide</Button></View>)}
+      {data.community.blockedCreatorIds.map(id => <View key={id} style={s.between}><T style={{ flex: 1 }}>{data.customExperiences.find(e => submissionOf(e)?.creatorId === id)?.submission?.creatorName ?? id}</T><Button secondary onPress={() => setData(d => ({ ...d, community: { ...d.community, blockedCreatorIds: d.community.blockedCreatorIds.filter(x => x !== id) } }))}>Unblock</Button></View>)}
+    </>;
+    if (sheet === "review-activities" && __DEV__) return <SubmissionReview items={data.customExperiences.filter(e => submissionOf(e)?.audience === "public")} onReview={(item, decision, note, accessVerified) => {
+      const current = data.customExperiences.find(e => e.id === item.id);
+      if (!current) throw new Error("This activity is no longer available.");
+      const updated = reviewActivity(current, decision, { reviewerId: "development-reviewer", isModerator: true, revision: submissionOf(item)!.revision, accessVerified, note, now: Date.now(),
+        moderationHold: data.community.reports.some(r => r.experienceId === item.id) });
+      setData(d => ({ ...d, customExperiences: d.customExperiences.map(e => e.id === item.id ? updated : e) }));
+      notify("Local review preview updated.");
+    }}/>;
     if (sheet === "log") return logView();
+    if (sheet === "edit-visit") return <>
+      <T style={s.heading}>{x.venue}</T>
+      {visitFields()}
+      <Button onPress={() => void saveVisitDetails()} disabled={savingVisit}>{savingVisit ? "Saving…" : "Save changes"}</Button>
+      <Button secondary disabled={savingVisit} onPress={closeSheet}>Cancel</Button>
+      <Button destructive disabled={savingVisit} onPress={requestVisitRemoval}>Remove from Been</Button>
+    </>;
+    if (sheet === "remove-visit") return <>
+      <T style={s.heading}>Remove {x.venue} from Been?</T>
+      <T style={s.muted}>Your ranking, note, and repeat choice will be removed. Your photos stay with this place.</T>
+      <View style={s.between}><T style={{ flex: 1 }}>Keep in Want to try</T><Switch accessibilityLabel="Keep in Want to try" value={keepRemovedSaved} onValueChange={setKeepRemovedSaved} trackColor={{ true: "#608451", false: C.line }} thumbColor={C.green} /></View>
+      <Button destructive onPress={() => {
+        setData(d => removeVisit(d, x.id, keepRemovedSaved));
+        setVisitPhotos([]); setListTab(keepRemovedSaved ? "saved" : "done"); setListMap(false); clearFilters(); nav("lists");
+        notify(keepRemovedSaved ? "Moved to Want to try." : "Removed from Been.");
+      }}>Remove visit</Button>
+      <Button secondary onPress={() => setSheet("experience-actions")}>Cancel</Button>
+    </>;
+    if (sheet === "delete-place") return <>
+      <T style={s.heading}>Delete {x.venue}?</T>
+      <T style={s.muted}>This removes your custom place, ranking, note, saved status, and its photos from this device. This cannot be undone.</T>
+      {!!visitError && <T accessibilityRole="alert" style={{ color: C.coral }}>{visitError}</T>}
+      <Button destructive disabled={savingVisit || !photoStorage.ready} onPress={() => void confirmPlaceDeletion()}>{savingVisit ? "Deleting…" : "Delete place"}</Button>
+      {!!photoStorage.loadError && <T accessibilityRole="alert" style={s.muted}>{photoStorage.loadError}</T>}
+      <Button secondary disabled={savingVisit} onPress={() => setSheet("experience-actions")}>Cancel</Button>
+    </>;
     if (sheet === "distance") return <>
       <T style={s.muted}>From {searchOrigin ? originLabel : "Downtown SLO"}</T>
       <Button onPress={() => { setSort("distance"); setSheet(null); }}>Nearest first</Button>
@@ -899,8 +1107,7 @@ function Elsewhere() {
         {[...new Map(listCatalog.filter(e => e.city.trim()).map(e => [cityKey(e.city), guideCityName(e.city)])).entries()].map(([key, label]) => <Pill key={key} label={label} active={draftListCity === key} onPress={() => setDraftListCity(key)} />)}
       </Disclosure>}
       <Disclosure title="Nicheness" summary={draftNiche[0] === 0 && draftNiche[1] === 10 ? "Any" : `${draftNiche[0]}–${draftNiche[1]}`} initiallyOpen={filterSection === "Nicheness"}>
-        <FilterSlider label="Minimum nicheness" value={draftNiche[0]} minimum={0} maximum={10} display={String(draftNiche[0])} left="Mainstream" right="Niche" onChange={value => setDraftNiche(([_, max]) => [value, Math.max(value, max)])} />
-        <FilterSlider label="Maximum nicheness" value={draftNiche[1]} minimum={0} maximum={10} display={String(draftNiche[1])} left="Mainstream" right="Niche" onChange={value => setDraftNiche(([min]) => [Math.min(min, value), value])} />
+        <NichenessRangeSlider value={draftNiche} onChange={setDraftNiche} />
       </Disclosure>
       <Disclosure title="Price" summary={draftFilters.budget === null ? "Any" : draftFilters.budget === 0 ? "Free" : `Up to $${draftFilters.budget}`} initiallyOpen={filterSection === "Price"}>
         <FilterSlider label="Maximum price per person" value={draftFilters.budget ?? 105} minimum={0} maximum={105} step={5} display={draftFilters.budget === null ? "Any" : draftFilters.budget === 0 ? "Free" : `$${draftFilters.budget}`} left="Free" right="Any price" onChange={value => setDraftFilters({ ...draftFilters, budget: value === 105 ? null : value })} />
@@ -923,7 +1130,7 @@ function Elsewhere() {
         {cities.map(city => <Pill key={city.id} label={city.label} icon="location-outline" onPress={() => { void pickCity(city); }} />)}
         {livePlacesEnabled && <PlaceAttribution />}
         {livePlacesEnabled && cityQuery.trim().length >= 2 && !cityLoading && !cityError && !cities.length && <T style={s.muted}>No matching cities. Try adding the country or region.</T>}
-        {(!cityQuery.trim() || /slo|san|luis|obispo/i.test(cityQuery)) && <Button secondary onPress={() => selectCity("San Luis Obispo")}>San Luis Obispo</Button>}
+        {!livePlacesEnabled && (!cityQuery.trim() || /slo|san|luis|obispo/i.test(cityQuery)) && <Button secondary onPress={() => selectCity("San Luis Obispo")}>San Luis Obispo</Button>}
         {!livePlacesEnabled && !!cityQuery.trim() && !/slo|san|luis|obispo/i.test(cityQuery) && <T style={s.muted}>No matching cities.</T>}
       </>;
     if (sheet === "niche") {
@@ -937,7 +1144,7 @@ function Elsewhere() {
           {niche.sources.map(source => <Pressable key={source.url} accessibilityRole="link" onPress={() => official(source.url)} style={{ gap: 4, paddingVertical: 8 }}><T style={{ color: C.green, fontFamily: fonts.medium }}>{source.title} ↗</T><T style={s.tiny}>{source.observation}</T></Pressable>)}
           <T style={s.tiny}>Researched {niche.checkedAt} · {niche.confidence} confidence</T>
         </Disclosure>}
-        <Disclosure title="Had you heard of it?" summary={data.awareness[x.id] === "yes" ? "Yes" : data.awareness[x.id] === "no" ? "No" : undefined}>
+        <Disclosure title="Had you heard of it?" summary={data.awareness[x.id] === "yes" ? "Yes" : data.awareness[x.id] === "no" ? "No" : data.awareness[x.id] === "unsure" ? "Not sure" : undefined}>
           <T style={s.tiny}>Before finding it on Elsewhere.</T>
           <View style={s.wrap}>{([["yes", "Yes"], ["no", "No"], ["unsure", "Not sure"]] as const).map(([value, label]) => <Pill key={value} label={label} active={data.awareness[x.id] === value} onPress={() => setData(d => ({ ...d, awareness: { ...d.awareness, [x.id]: value } }))} />)}</View>
         </Disclosure>
@@ -945,43 +1152,38 @@ function Elsewhere() {
     }
     if (sheet === "about") return <>
       <T style={s.heading}>Data & privacy</T>
-      <T style={s.muted}>This preview includes example profiles, visits, and community scores. Your lists, rankings, and notes are saved on this device.</T>
+      <T style={s.muted}>This demo starts with an example profile, visits, friends, and community scores. Your changes, lists, notes, and photos are saved only on this device. Accounts and shared social activity are not connected.</T>
       <T style={s.muted}>Place details use official sources or Google Maps. Nicheness scores are based on editorial research into awareness and specialization, separately from enjoyment.</T>
+      <T style={s.muted}>Community activities have audience controls, creation limits, and a local review state. Accounts, friend delivery, hosted links, and server-enforced moderation remain unconnected.</T>
+      {__DEV__ && <Button secondary onPress={() => setSheet("review-activities")}>Preview submission review</Button>}
       <Disclosure title="Recommendations">
         <T style={s.muted}>For you uses your interests, ranking history, and available friend and community scores, with a mix of activity types.</T>
         <View style={s.between}><T style={{ flex: 1 }}>Example social scores</T><Switch accessibilityLabel="Example social scores" value={data.demoSocial} onValueChange={value => setData(d => ({ ...d, demoSocial: value }))} trackColor={{ true: "#608451", false: C.line }} thumbColor={C.green} /></View>
       </Disclosure>
     </>;
     if (sheet === "experience-share") {
-      const text = `${x.venue}\n${x.city}\n${x.sourceUrl}`;
-      return (
-        <>
-          <T style={s.serif}>{x.name}</T>
-          <T selectable style={[s.notice, s.muted]}>
-            {text}
-          </T>
-          <Button
-            onPress={async () => {
-              try {
-                await Clipboard.setStringAsync(text);
-                setSheet(null);
-                notify("Experience copied.");
-              } catch {
-                notify("Couldn’t copy. Select the text above.");
-              }
-            }}
-          >
-            Copy experience
-          </Button>
-        </>
-      );
+      const text = activityShareText(x, viewer);
+      const submission = submissionOf(x);
+      return <>
+        <T style={s.serif}>{x.name}</T>
+        {text === null ? <>
+          <T style={s.muted}>{submission?.audience === "private" ? "This activity is private. Change its audience before sharing." : submission?.audience === "friends" ? "Friends-only sharing needs connected accounts. Copying details would let them travel outside that audience." : "This activity is not available for sharing."}</T>
+          {submission?.creatorId === "you" && submission.status !== "removed" && <Button onPress={editActivity}>Edit activity and audience</Button>}
+        </> : <>
+          {submission && <T style={s.tiny}>People can pass these details on. This copies text, not a hosted Elsewhere link.</T>}
+          <T selectable style={[s.notice, s.muted]}>{text}</T>
+          <Button onPress={async () => { try { await Clipboard.setStringAsync(text); setSheet(null); notify("Experience copied."); } catch { notify("Couldn't copy. Select the text above."); } }}>Copy experience</Button>
+        </>}
+      </>;
     }
     if (sheet === "experience-actions")
       return (
         <>
           <T style={s.heading}>{x.name}</T>
-          <Button onPress={() => log(x.id)}>
-            {done.has(x.id) ? "Edit your ranking" : "Rank this experience"}
+          {submissionOf(x)?.creatorId === "you" && submissionOf(x)?.status !== "removed" && <Button onPress={editActivity}>Edit activity and audience</Button>}
+          {done.has(x.id) && <Button onPress={() => editVisit(x.id)}>Edit visit</Button>}
+          <Button secondary={done.has(x.id)} onPress={() => log(x.id)}>
+            {done.has(x.id) ? "Change ranking" : "Rank this experience"}
           </Button>
           <Button
             secondary
@@ -994,8 +1196,8 @@ function Elsewhere() {
               ? "Remove from Want to try"
               : "Save to Want to try"}
           </Button>
-          <Button secondary onPress={showActivityMap}>
-            View on map
+          <Button secondary disabled={!hasMapCoordinates(x)} onPress={showActivityMap}>
+            {hasMapCoordinates(x) ? "View on map" : "Map location unavailable"}
           </Button>
           <Button secondary onPress={() => official(x.sourceUrl)}>
             Visit website ↗
@@ -1003,6 +1205,14 @@ function Elsewhere() {
           {done.has(x.id) && <Button secondary onPress={() => guide("you", x.city)}>
             View my {x.city} guide
           </Button>}
+          {done.has(x.id) && <Button destructive onPress={requestVisitRemoval}>Remove from Been</Button>}
+          {submissionOf(x)?.creatorId !== "you" && <Button secondary onPress={() => setSheet("report-activity")}>Report and hide activity</Button>}
+          {!!submissionOf(x) && submissionOf(x)?.creatorId !== "you" && <Button destructive onPress={() => {
+            const creatorId = submissionOf(x)!.creatorId;
+            setData(d => ({ ...d, community: { ...d.community, blockedCreatorIds: [...new Set([...d.community.blockedCreatorIds, creatorId])] } }));
+            setMapFocusId(null); nav("discover"); notify("Creator blocked.");
+          }}>Block creator</Button>}
+          {submissionOf(x)?.creatorId === "you" && <Button destructive onPress={() => { setVisitError(""); setSheet("delete-place"); }}>Delete custom place</Button>}
         </>
       );
     if (sheet === "share")
@@ -1010,12 +1220,13 @@ function Elsewhere() {
         <>
           <T style={s.muted}>
             Share your city ranking and official activity links.
-            Your private visit notes stay out.
+            Private notes, private activities, and friends-only activities are excluded.
           </T>
           <T selectable style={[s.notice, s.muted]}>
             {guideText}
           </T>
           <Button
+            disabled={!activeGuide?.entries.some(({ experience }) => canExportActivity(experience, viewer))}
             onPress={async () => {
               try {
                 await Clipboard.setStringAsync(guideText);
@@ -1069,9 +1280,14 @@ function Elsewhere() {
         {page !== "detail" && page !== "guide" && page !== "leaderboard" && <View style={s.header}>
           <View style={[s.row, { flex: 1, gap: 4 }]}>
             {page === "discover" && <Icon name="arrow-back" label="Back to feed" onPress={() => nav("friends")} />}
-            <T style={page === "friends" ? s.wordmark : s.title}>{page === "friends" ? "elsewhere" : page === "lists" ? "My lists" : page === "you" ? "Profile" : "Discover"}</T>
+            {page === "friends" ? (
+              // Use the serif font's native height instead of T's body line height.
+              <Text style={s.wordmark}>elsewhere</Text>
+            ) : (
+              <T style={s.title}>{page === "lists" ? "My lists" : page === "you" ? "Profile" : "Discover"}</T>
+            )}
           </View>
-          {page === "discover" ? <Pressable accessibilityRole="button" accessibilityLabel="Change city" onPress={chooseCity} style={[s.row, { minHeight: 44, maxWidth: "48%", gap: 4 }]}><T numberOfLines={1} style={[s.tiny, { flexShrink: 1 }]}>{locationLabel}</T><I name="chevron-down" size={13} color={C.muted} /></Pressable> : page === "lists" && listTab !== "guides" ? <Pressable accessibilityRole="button" accessibilityLabel="Filter lists by city" onPress={() => openFilters("City")} style={[s.row, { minHeight: 44, maxWidth: "45%", gap: 4 }]}><T style={s.tiny} numberOfLines={1}>{listCity ? guideCityName(listCatalog.find(e => cityKey(e.city) === listCity)?.city ?? listCity) : "All cities"}</T><I name="chevron-down" size={13} color={C.muted} /></Pressable> : <Icon name="search-outline" label="Discover places" onPress={() => { setMap(false); nav("discover"); }} />}
+          {page === "discover" ? <Pressable accessibilityRole="button" accessibilityLabel="Change city" onPress={chooseCity} style={[s.row, { minHeight: 44, maxWidth: "48%", gap: 4 }]}><T numberOfLines={1} style={[s.tiny, { flexShrink: 1 }]}>{locationLabel}</T><I name="chevron-down" size={13} color={C.muted} /></Pressable> : page === "lists" && listTab !== "guides" ? <Pressable accessibilityRole="button" accessibilityLabel="Filter lists by city" onPress={() => openFilters("City")} style={[s.row, { minHeight: 44, maxWidth: "45%", gap: 4 }]}><T style={s.tiny} numberOfLines={1}>{listCity ? guideCityName(listCatalog.find(e => cityKey(e.city) === listCity)?.city ?? listCity) : "All cities"}</T><I name="chevron-down" size={13} color={C.muted} /></Pressable> : <Icon name="search-outline" label="Discover places" onPress={() => { setDiscoveryMap(false); nav("discover"); }} />}
         </View>}
         {(page === "discover" || (page === "lists" && listTab !== "guides")) && (
           <View style={s.search}>
@@ -1096,18 +1312,23 @@ function Elsewhere() {
             )}
           </View>
         )}
+        <View style={{ flex: 1 }}>
         {page === "friends" ? (
           <FriendsPage
             savedIds={data.saved}
             showExamples={data.demoSocial}
+            hiddenActivityIds={data.community.hiddenIds}
+            blockedCreatorIds={data.community.blockedCreatorIds}
+            onBlockCreator={id => { setData(d => ({ ...d, community: { ...d.community, blockedCreatorIds: [...new Set([...d.community.blockedCreatorIds, id])] } })); notify("Person blocked on this device."); }}
             onExperience={detail}
             onSave={save}
             onRank={log}
             onGuide={guide}
-            onDiscover={() => { setMap(false); nav("discover"); }}
+            onDiscover={() => { setDiscoveryMap(false); nav("discover"); }}
             onNearby={() => {
-              setMap(true);
+              clearFilters(); setMode("all"); setSort("distance"); setDiscoveryMap(true);
               nav("discover");
+              void deviceLocation.locate(point => { useMyLocation(point); setSort("distance"); });
             }}
           />
         ) : page === "leaderboard" ? <LeaderboardPage guides={ownGuides} showExamples={data.demoSocial} onGuide={guide} onYou={() => nav("you")} /> : (
@@ -1129,6 +1350,7 @@ function Elsewhere() {
         </ScrollView>
         )}
         {(page === "discover" || (page === "lists" && listTab !== "guides")) && <Pressable accessibilityRole="button" accessibilityLabel={map ? "View list" : "View map"} onPress={() => setMap(value => !value)} style={s.mapToggle}><I name={map ? "list-outline" : "map-outline"} color={C.greenInk} size={18} /><T style={{ color: C.greenInk, fontFamily: fonts.bold, fontSize: 13 }}>{map ? "View list" : "View map"}</T></Pressable>}
+        </View>
         <View style={s.nav}>
           {[["friends", "newspaper-outline", "Feed"], ["lists", "list-outline", "My lists"], ["rank", "add", "Rank"], ["leaderboard", "podium-outline", "Leaderboard"], ["you", "person-outline", "You"]].map(([p, icon, label]) => {
             const destination = page === "detail" ? returnPage.current === "guide" ? guideReturnPage.current : returnPage.current : page === "guide" ? guideReturnPage.current : page;
@@ -1154,12 +1376,20 @@ function Elsewhere() {
             <T style={s.heading}>
               {
                 {
-                  "add-experience": "Add a place",
+                  "add-experience": editingActivityId ? "Edit activity" : "Add an activity",
+                  "my-activities": "Your activities",
+                  "activity-map": "Activity location",
+                  "report-activity": "Report activity",
+                  "hidden-activities": "Hidden and blocked",
+                  "review-activities": "Local review preview",
                   rank: "Rank a place",
                   distance: "Distance",
                   sort: "Sort experiences",
                   filters: "Filters",
                   log: "Your experience",
+                  "edit-visit": "Edit visit",
+                  "remove-visit": "Remove visit",
+                  "delete-place": "Delete custom place",
                   niche: "Nicheness",
                   share: "Share guide",
                   about: "About Elsewhere",
@@ -1183,7 +1413,7 @@ function Elsewhere() {
             {sheetView()}
           </ScrollView>
           {sheet === "filters" && <View style={[s.row, { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 24, borderTopWidth: 1, borderTopColor: C.line }]}>
-            <Pressable accessibilityRole="button" onPress={() => { setDraftFilters({ budget: null, radius: null, duration: null, vibes: [], query: filters.query }); setDraftNiche([0, 10]); setDraftSort("for-you"); setDraftListCity(null); }} style={{ flex: 1, minHeight: 48, justifyContent: "center" }}><T style={{ color: C.green }}>Clear all</T></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => { setFilters({ budget: null, radius: null, duration: null, vibes: [], query: filters.query }); setNicheRange([0, 10]); setSort("for-you"); setListCity(null); setSheet(null); }} style={{ flex: 1, minHeight: 48, justifyContent: "center" }}><T style={{ color: C.green }}>Clear all</T></Pressable>
             <View style={{ flex: 2 }}><Button onPress={() => { setFilters(draftFilters); setNicheRange(draftNiche); setSort(draftSort); setListCity(draftListCity); setSheet(null); }}>Apply</Button></View>
           </View>}
         </BottomSheet>

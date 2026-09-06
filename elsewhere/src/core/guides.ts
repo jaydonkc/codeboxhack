@@ -1,5 +1,6 @@
 import type { Experience } from "../data/catalog";
 import { comparePreferences, scorePreferences, type Preference } from "./ranking";
+import { canExportActivity, type Viewer } from "./submissions";
 
 export type CityGuide = {
   key: string;
@@ -59,9 +60,14 @@ export function buildCityGuides(
 }
 
 /** Sharing includes the ranking and public links, not private visit notes. */
-export function cityGuideText(guide: CityGuide, owner: string): string {
-  return `${owner} · ${guide.city}\n${guide.entries.length} experiences visited\n\n` +
-    guide.entries.map(({ experience, score, position }) =>
-      `${position === null ? "Unranked" : `${position}.`} ${experience.name}${score === null ? "" : ` · ${score.toFixed(1)}`}\n${experience.sourceUrl}`,
-    ).join("\n\n");
+export function cityGuideText(guide: CityGuide, owner: string, viewer: Viewer = {}): string {
+  const entries = guide.entries.filter(({ experience }) => canExportActivity(experience, viewer));
+  if (!entries.length) return "No shareable experiences in this guide.";
+  // Renumber the exported subset so private entries cannot leak through rank gaps.
+  const positions = new Map<number, number>();
+  return `${owner} · ${guide.city}\n${entries.length} experiences visited\n\n` +
+    entries.map(({ experience, score, position }, index) => {
+      if (position !== null && !positions.has(position)) positions.set(position, index + 1);
+      return `${position === null ? "Unranked" : `${positions.get(position)}.`} ${experience.name}${score === null ? "" : ` · ${score.toFixed(1)}`}\n${experience.sourceUrl}`;
+    }).join("\n\n");
 }

@@ -3,6 +3,7 @@ import type { Map as LeafletMap, LayerGroup } from "leaflet";
 import type { MapProps } from "./ExperienceMap";
 import type { MapBounds } from "../data/catalog";
 import "leaflet/dist/leaflet.css";
+import { scoreMarker } from "./scoreMarker.web";
 import { useDeviceLocation } from "./useDeviceLocation";
 const buttonStyle: React.CSSProperties = {
   border: 0,
@@ -18,12 +19,16 @@ const buttonStyle: React.CSSProperties = {
 export default function LocalExperienceMap({
   items,
   selected,
+  scores,
+  scoreLabel = "Enjoyment",
   onSelect,
   onSearchArea,
   onResetArea,
   origin,
   userLocation,
   onUserLocation,
+  pickedLocation,
+  onPickLocation,
   height = 390,
   compact = false,
 }: MapProps) {
@@ -38,6 +43,8 @@ export default function LocalExperienceMap({
     [tileError, setTileError] = useState(false),
     [loadError, setLoadError] = useState(false);
   callback.current = onSelect;
+  const pick = useRef(onPickLocation);
+  pick.current = onPickLocation;
   useEffect(() => {
     let dead = false;
     import("leaflet").then((L) => {
@@ -57,6 +64,7 @@ export default function LocalExperienceMap({
         compact ? 15 : 12,
       );
       map.current = m;
+      m.on("click", event => pick.current?.({ lat: event.latlng.lat, lng: event.latlng.lng }));
       markers.current = L.layerGroup().addTo(m);
       const tiles = L.tileLayer(
         "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -97,12 +105,9 @@ export default function LocalExperienceMap({
       items
         .filter((x) => x.provider !== "google" && x.lat != null && x.lng != null)
         .forEach((x) => {
-          const marker = L.circleMarker([x.lat!, x.lng!], {
-            radius: x.id === selected ? 12 : 9,
-            fillColor: x.id === selected ? "#d66940" : "#345c36",
-            color: "#fff9e9",
-            weight: 3,
-            fillOpacity: 1,
+          const marker = L.marker([x.lat!, x.lng!], {
+            icon: L.divIcon({ html: scoreMarker(scores?.[x.id], x.id === selected), className: "elsewhere-score-marker", iconSize: [48, 36], iconAnchor: [24, 18] }),
+            zIndexOffset: x.id === selected ? 1000 : 0,
           }).addTo(markers.current!);
           const label = document.createElement("span");
           label.textContent = x.venue;
@@ -112,7 +117,7 @@ export default function LocalExperienceMap({
           if (el) {
             el.setAttribute("tabindex", "0");
             el.setAttribute("role", "button");
-            el.setAttribute("aria-label", x.name);
+            el.setAttribute("aria-label", `${x.name} · ${scoreLabel} ${scores?.[x.id] == null ? "unrated" : scores[x.id]!.toFixed(1)}`);
             el.addEventListener("keydown", (ev) => {
               if (["Enter", " "].includes((ev as KeyboardEvent).key)) {
                 ev.preventDefault();
@@ -125,13 +130,24 @@ export default function LocalExperienceMap({
     return () => {
       dead = true;
     };
-  }, [ready, items.map(x => `${x.id}:${x.lat}:${x.lng}:${x.venue}`).join("|"), selected]);
+  }, [ready, items.map(x => `${x.id}:${x.lat}:${x.lng}:${x.venue}`).join("|"), scores, scoreLabel, selected]);
   useEffect(() => {
     if (!ready || !origin || compact || !map.current) return;
     const center = map.current.getCenter();
     if (Math.abs(center.lat - origin.lat) > 0.00001 || Math.abs(center.lng - origin.lng) > 0.00001)
       map.current.setView([origin.lat, origin.lng], 12);
   }, [ready, origin?.lat, origin?.lng, compact]);
+  useEffect(() => {
+    if (!ready || !pickedLocation) return;
+    let dead = false;
+    let marker: import("leaflet").CircleMarker | undefined;
+    import("leaflet").then(L => {
+      if (dead || !map.current) return;
+      marker = L.circleMarker([pickedLocation.lat, pickedLocation.lng], { radius: 10, fillColor: "#d66940", color: "#fff9e9", weight: 3, fillOpacity: 1 }).addTo(map.current);
+      marker.bindTooltip("Activity location");
+    });
+    return () => { dead = true; marker?.remove(); };
+  }, [ready, pickedLocation?.lat, pickedLocation?.lng]);
   useEffect(() => {
     if (!ready || !devicePoint || compact) return;
     let dead = false;

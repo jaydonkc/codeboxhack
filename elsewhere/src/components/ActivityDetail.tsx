@@ -1,10 +1,14 @@
-import React, { type ReactNode } from "react";
+import React, { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { type Experience, priceLabel } from "../data/catalog";
 import PlaceAttribution from "./PlaceAttribution";
 import Disclosure from "./Disclosure";
+import PlaceGallery, { PhotoCredit, PhotoImage } from "./PlaceGallery";
+import { usePlaceGallery } from "../services/usePlaceGallery";
 import { C, fonts } from "../theme";
+import { hasMapCoordinates } from "../core/library";
+import { audienceLabels, statusLabels, submissionOf } from "../core/submissions";
 
 export type ActivityDetailProps = {
   activity: Experience;
@@ -19,7 +23,9 @@ export type ActivityDetailProps = {
   onBack: () => void;
   onShare: () => void;
   onMore: () => void;
+  onManageActivity?: () => void;
   onRank: () => void;
+  onEditVisit?: () => void;
   onSave: () => void;
   onWebsite: () => void;
   onDirections: () => void;
@@ -56,16 +62,20 @@ function Action({
   icon,
   label,
   onPress,
+  disabled = false,
 }: {
   icon: IconName;
   label: string;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={({ pressed }) => [d.action, pressed && d.pressed]}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [d.action, pressed && d.pressed, disabled && { opacity: 0.5 }]}
     >
       <Ionicons name={icon} color={C.green} size={17} />
       <Text style={d.actionText}>{label}</Text>
@@ -158,7 +168,9 @@ export default function ActivityDetail({
   onBack,
   onShare,
   onMore,
+  onManageActivity,
   onRank,
+  onEditVisit,
   onSave,
   onWebsite,
   onDirections,
@@ -167,6 +179,10 @@ export default function ActivityDetail({
   onAwareness,
   onViewGuide,
 }: ActivityDetailProps) {
+  const gallery = usePlaceGallery(activity.id);
+  const [photoIndex, setPhotoIndex] = useState<number | null>(null);
+  const cover = gallery.photos[0];
+  const submission = submissionOf(activity);
   const ranked = typeof personalScore === "number";
   const rankLabel = ranked
     ? "Rank again"
@@ -176,8 +192,14 @@ export default function ActivityDetail({
 
   return (
     <View style={d.page}>
-      <View style={[d.hero, !map && d.heroWithoutMap]}>
-        {map && (
+      <View style={[d.hero, cover && { height: 240 }, !map && !cover && d.heroWithoutMap]}>
+        {cover ? <>
+          <Pressable accessibilityRole="button" accessibilityLabel={`View ${gallery.photos.length} photo${gallery.photos.length === 1 ? "" : "s"} of ${activity.venue}`} onPress={() => setPhotoIndex(0)} style={d.mapButton}>
+            <PhotoImage photo={cover} label={activity.venue} />
+            <View style={d.mapCaption}><Ionicons name="images-outline" color={C.ink} size={16} /><Text style={d.mapCaptionText}>{gallery.photos.length} photo{gallery.photos.length === 1 ? "" : "s"}</Text></View>
+          </Pressable>
+          <View style={{ position: "absolute", bottom: 12, left: 15, maxWidth: "60%", backgroundColor: "#18271fbd", borderRadius: 6, paddingHorizontal: 6 }}><PhotoCredit photo={cover} /></View>
+        </> : map && (
           <View style={d.mapButton}>
             <View style={d.mapContent}>
               {map}
@@ -223,6 +245,14 @@ export default function ActivityDetail({
         <Text style={d.category}>
           {activity.activityType} · {activity.city}
         </Text>
+        {submission && <View style={{ gap: 6, marginTop: 12 }}>
+          <Text style={d.metadataText}>Added by {submission.creatorName} · {audienceLabels[submission.audience]}</Text>
+          <Text style={[d.metadataText, { color: C.green }]}>{statusLabels[submission.status]}</Text>
+          {submission.status === "pending" && <Text style={d.metadataText}>Saved for review on this device. Public review isn't connected yet.</Text>}
+          {!!submission.review?.note && <Text style={d.metadataText}>Review: {submission.review.note}</Text>}
+          {!!submission.accessNote && <Text style={d.metadataText}>Access: {submission.accessNote}</Text>}
+          {onManageActivity && <Action icon="options-outline" label="Edit activity and audience" onPress={onManageActivity}/>}
+        </View>}
         <View style={d.metadata}>
           <View style={d.inline}>
             <Ionicons name="time-outline" size={15} color={C.muted} />
@@ -233,6 +263,10 @@ export default function ActivityDetail({
           <Text style={d.metadataDot}>·</Text>
           <Text style={d.metadataText}>{priceLabel(activity)}</Text>
         </View>
+
+        <Information icon="time-outline" title="Hours & access">
+          <Text style={d.informationText}>{activity.scheduleNote}</Text>
+        </Information>
 
         <View style={d.primaryActions}>
           <Pressable
@@ -270,11 +304,12 @@ export default function ActivityDetail({
           <Action icon="globe-outline" label={activity.provider === "google" ? "Google Maps" : activity.id.startsWith("user:") ? "Find place" : "Website"} onPress={onWebsite} />
           <Action
             icon="navigate-outline"
-            label="Directions"
+            label="Open in Maps"
             onPress={onDirections}
           />
-          <Action icon="map-outline" label="Map" onPress={onMap} />
+          <Action icon="map-outline" label="Map" disabled={!hasMapCoordinates(activity)} onPress={onMap} />
         </View>
+        {!hasMapCoordinates(activity) && <Text style={[d.metadataText, { marginTop: 10 }]}>No map location has been added for this place yet.</Text>}
       </View>
 
       <View style={d.section}>
@@ -294,6 +329,8 @@ export default function ActivityDetail({
           </Text>
         )}
       </View>
+
+      <PlaceGallery placeId={activity.id} placeName={activity.venue} gallery={gallery} openIndex={photoIndex} onOpen={setPhotoIndex} onClose={() => setPhotoIndex(null)} />
 
       <Pressable
         accessibilityRole="button"
@@ -327,7 +364,7 @@ export default function ActivityDetail({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Edit your visit"
-              onPress={onRank}
+              onPress={onEditVisit}
               style={d.textButton}
             >
               <Text style={d.link}>Edit</Text>
@@ -356,9 +393,6 @@ export default function ActivityDetail({
 
       <View style={d.section}>
         <Text style={d.sectionTitle} accessibilityRole="header">Visit details</Text>
-        <Information icon="time-outline" title="Hours & access">
-          <Text style={d.informationText}>{activity.scheduleNote}</Text>
-        </Information>
         <Information icon="ticket-outline" title="Admission">
           <Text style={d.informationText}>{activity.priceNote}</Text>
         </Information>
@@ -369,7 +403,7 @@ export default function ActivityDetail({
             onPress={onDirections}
             style={d.directionLink}
           >
-            <Text style={d.link}>Get directions</Text>
+            <Text style={d.link}>Open in Maps</Text>
             <Ionicons
               name="arrow-up-right-box-outline"
               color={C.green}

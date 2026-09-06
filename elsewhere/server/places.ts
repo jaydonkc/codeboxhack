@@ -11,8 +11,9 @@ export function validateRequest(input: any): PlacesRequest {
   if (!input || typeof input !== "object") throw new RequestError(400, "Invalid request.");
   if (input.action === "cities") {
     if (typeof input.query !== "string" || input.query.trim().length < 2 || input.query.length > 150) throw new RequestError(400, "Enter a city name (2–150 characters).");
-  } else if (input.action === "city" || input.action === "details") {
+  } else if (input.action === "city" || input.action === "details" || input.action === "photo") {
     if (typeof input.id !== "string" || !/^(google:)?[A-Za-z0-9_-]{1,256}$/.test(input.id)) throw new RequestError(400, "Invalid place reference.");
+    if (input.action === "photo" && (!Number.isInteger(input.index) || !finite(input.index, 0, 9))) throw new RequestError(400, "Invalid photo index.");
   } else if (input.action === "search") {
     if (!finite(input.origin?.lat, -90, 90) || !finite(input.origin?.lng, -180, 180) || !finite(input.radius, 1, 50000)) throw new RequestError(400, "Choose a location and a radius up to 50 km.");
     if (input.query !== undefined && (typeof input.query !== "string" || input.query.length > 200)) throw new RequestError(400, "Search text is too long.");
@@ -50,6 +51,21 @@ export async function queryPlaces(input: unknown, apiKey: string, fetcher: typeo
   if (r.action === "details") {
     const item = normalizePlace(await google(`places/${encodeURIComponent(placeId(r.id))}`, undefined, FIELDS));
     return { experiences: item ? [item] : [] };
+  }
+  if (r.action === "photo") {
+    // Resolve a fresh photo resource for every request. Resource names and
+    // signed image URLs never go into persisted venue/user records.
+    const id = placeId(r.id);
+    const details = await google(`places/${encodeURIComponent(id)}`, undefined, "photos");
+    const photos = Array.isArray(details.photos) ? details.photos.slice(0, 10) : [];
+    const photo = photos[r.index];
+    if (!photo) return { photoCount: photos.length };
+    const name = photo.name;
+    if (typeof name !== "string" || !name.startsWith(`places/${id}/photos/`) || !/^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_-]+$/.test(name)) throw new RequestError(502, "This photo is unavailable.");
+    const image = await google(`${name}/media?maxWidthPx=1600&maxHeightPx=1600&skipHttpRedirect=true`);
+    const uri = safeUrl(image.photoUri);
+    if (!uri || !new URL(uri).hostname.endsWith(".googleusercontent.com")) throw new RequestError(502, "This photo is unavailable.");
+    return { photoCount: photos.length, photo: { uri, authors: (photo.authorAttributions ?? []).filter((a: any) => typeof a.displayName === "string").map((a: any) => ({ name: a.displayName, url: safeUrl(a.uri?.startsWith("//") ? `https:${a.uri}` : a.uri) })) } };
   }
   const circle = { center: { latitude: r.origin.lat, longitude: r.origin.lng }, radius: r.radius };
   const latDelta = r.radius / 111320;

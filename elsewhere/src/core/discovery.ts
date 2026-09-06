@@ -55,9 +55,7 @@ export function matchesIntent(item: Experience, mode: DiscoveryMode, context: Di
   const current = context.preferences.find(p => p.id === item.id);
   if (mode === "new") return !current;
   if (mode !== "familiar") return true;
-  if (current) return current.band === "liked" || current.again === true;
-  return item.vibes.some(v => context.interests.includes(v)) || context.preferences.some(p =>
-    (p.band === "liked" || p.again === true) && context.catalog.find(e => e.id === p.id)?.activityType === item.activityType);
+  return !!current && (current.band === "liked" || current.again === true);
 }
 
 export function matchesNiche(score: number | null, range?: readonly [number, number]): boolean {

@@ -67,6 +67,13 @@ test("social evidence influences recommendations and disappears when disabled", 
   assert.equal(recommendationScore(item, {...context, social: undefined}), 0);
 });
 
+test("Favorites never includes an unvisited interest or activity-type match", () => {
+  const item = byId("sloma");
+  assert.equal(matchesIntent(item, "familiar", { ...context, interests: item.vibes }), false);
+  assert.equal(matchesIntent(item, "familiar", { ...context, catalog: [item, { ...item, id: "other" }], preferences: [{ id: "other", band: "liked", rank: 1 }] }), false);
+  assert.equal(matchesIntent(item, "familiar", { ...context, preferences: [{ id: item.id, band: "liked", rank: null }] }), true);
+});
+
 test("For You varies activity types without reintroducing filtered candidates or using niche", () => {
   const items = [byId("bishop-peak"), byId("cerro-san-luis"), byId("sloma")];
   const sorted = orderExperiences(items, "for-you", context, () => { throw Error("For You must not consult niche"); });

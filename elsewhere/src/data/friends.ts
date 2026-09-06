@@ -1,5 +1,5 @@
 // Fictional social fixtures. Venue information comes from the real SLO catalog.
-export type FriendId = "emma" | "maya" | "alex" | "noah" | "jacob" | "usman";
+export type FriendId = "emma" | "maya" | "alex" | "noah" | "jacob" | "usman" | "rayn";
 
 export type FriendProfile = Readonly<{
   id: FriendId;
@@ -46,6 +46,7 @@ export type FriendEvent = EventBase & (
 );
 
 export const friends: readonly FriendProfile[] = [
+  { id: "rayn", name: "Rayn", handle: "rayn", initials: "R", color: "#b5d6e3", bio: "", city: "", rankedCount: 0, savedCount: 0 },
   { id: "jacob", name: "Jacob", handle: "jacob", initials: "J", color: "#c9d9b3", bio: "Trails, good views, and finding the next weekend plan.", city: "San Luis Obispo", rankedCount: 7, savedCount: 4 },
   { id: "usman", name: "Usman", handle: "usman", initials: "U", color: "#c8c0e2", bio: "Always down to try something new with friends.", city: "San Luis Obispo", rankedCount: 6, savedCount: 5 },
   {

@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { MapProps } from "./ExperienceMap";
 import type { MapBounds } from "../data/catalog";
 import { useDeviceLocation } from "./useDeviceLocation";
+import { scoreMarker } from "./scoreMarker.web";
 import LocalExperienceMap from "./LocalExperienceMap.web";
 
 let loading: Promise<void> | undefined;
@@ -26,7 +27,7 @@ const buttonStyle: React.CSSProperties = { border: 0, borderRadius: 20, padding:
 export default function ExperienceMap(props: MapProps) {
   return process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY ? <GoogleExperienceMap {...props} /> : <LocalExperienceMap {...props} />;
 }
-function GoogleExperienceMap({ items, selected, onSelect, onSearchArea, onResetArea, origin, userLocation, onUserLocation, height = 390, compact = false }: MapProps) {
+function GoogleExperienceMap({ items, scores, scoreLabel = "Enjoyment", selected, onSelect, onSearchArea, onResetArea, origin, userLocation, onUserLocation, pickedLocation, onPickLocation, height = 390, compact = false }: MapProps) {
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<google.maps.Map | null>(null);
   const pins = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
@@ -38,20 +39,24 @@ function GoogleExperienceMap({ items, selected, onSelect, onSearchArea, onResetA
   const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY ?? "";
   const point = compact && items[0]?.lat != null && items[0]?.lng != null ? { lat: items[0].lat, lng: items[0].lng } : origin;
   const firstPoint = useRef(point);
+  const pick = useRef(onPickLocation);
+  pick.current = onPickLocation;
   useEffect(() => {
     if (!key) return;
     let disposed = false;
     let idle: google.maps.MapsEventListener | undefined;
+    let click: google.maps.MapsEventListener | undefined;
     loadGoogleMaps(key).then(async () => {
       const { Map } = await google.maps.importLibrary("maps") as google.maps.MapsLibrary;
       await google.maps.importLibrary("marker");
       if (disposed || !host.current) return;
       const m = new Map(host.current, { center: firstPoint.current ?? { lat: 20, lng: 0 }, zoom: firstPoint.current ? compact ? 15 : 12 : 2, mapId: process.env.EXPO_PUBLIC_GOOGLE_MAP_ID || "DEMO_MAP_ID", disableDefaultUI: compact, gestureHandling: compact ? "none" : "cooperative", keyboardShortcuts: !compact, mapTypeControl: false, streetViewControl: false });
       map.current = m;
+      click = m.addListener("click", (event: google.maps.MapMouseEvent) => { if (event.latLng && pick.current) { event.stop(); pick.current({ lat: event.latLng.lat(), lng: event.latLng.lng() }); } });
       idle = m.addListener("idle", () => { const b = m.getBounds(); if (b) setBounds({ north: b.getNorthEast().lat(), east: b.getNorthEast().lng(), south: b.getSouthWest().lat(), west: b.getSouthWest().lng() }); });
       setReady(true);
     }).catch(e => { if (!disposed) setError(e.message); });
-    return () => { disposed = true; idle?.remove(); pins.current.forEach(p => p.map = null); map.current = null; };
+    return () => { disposed = true; idle?.remove(); click?.remove(); pins.current.forEach(p => p.map = null); map.current = null; };
   }, [key, compact]);
   useEffect(() => {
     if (!ready || !map.current || !point) return;
@@ -62,13 +67,19 @@ function GoogleExperienceMap({ items, selected, onSelect, onSearchArea, onResetA
     if (!ready || !map.current) return;
     pins.current.forEach(p => p.map = null);
     pins.current = items.filter(x => x.lat != null && x.lng != null).map(x => {
-      const pin = new google.maps.marker.PinElement({ background: x.id === selected ? "#d66940" : "#345c36", borderColor: "#fff9e9", glyphColor: "#fff9e9" });
-      const marker = new google.maps.marker.AdvancedMarkerElement({ map: map.current, position: { lat: x.lat!, lng: x.lng! }, title: x.name, content: pin, gmpClickable: true });
+      const pin = scoreMarker(scores?.[x.id], x.id === selected);
+      const marker = new google.maps.marker.AdvancedMarkerElement({ map: map.current, position: { lat: x.lat!, lng: x.lng! }, title: `${x.name} · ${scoreLabel} ${scores?.[x.id] == null ? "unrated" : scores[x.id]!.toFixed(1)}`, content: pin, gmpClickable: true, zIndex: x.id === selected ? 1000 : 1 });
       marker.addListener("click", () => onSelect(x.id));
       return marker;
     });
     return () => { pins.current.forEach(p => p.map = null); };
-  }, [ready, items, selected, onSelect]);
+  }, [ready, items, scores, scoreLabel, selected, onSelect]);
+  useEffect(() => {
+    if (!ready || !map.current || !pickedLocation) return;
+    const pin = new google.maps.marker.PinElement({ background: "#d66940", borderColor: "#fff9e9", glyphColor: "#fff9e9" });
+    const marker = new google.maps.marker.AdvancedMarkerElement({ map: map.current, position: pickedLocation, title: "Activity location", content: pin, zIndex: 3000 });
+    return () => { marker.map = null; };
+  }, [ready, pickedLocation?.lat, pickedLocation?.lng]);
   useEffect(() => {
     if (!ready || !map.current || compact || !devicePoint) return;
     const pin = new google.maps.marker.PinElement({ background: "#4285F4", borderColor: "white", glyphColor: "white" });

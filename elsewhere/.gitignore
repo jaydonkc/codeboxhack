@@ -42,3 +42,6 @@ yarn-error.*
 
 .env
 .env.server
+
+# Local build artifacts and debug signing material
+.local/

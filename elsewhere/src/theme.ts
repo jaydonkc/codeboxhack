@@ -258,7 +258,7 @@ export const s = StyleSheet.create({
   navSelected: { backgroundColor: "#344134" },
   navLabel: { color: C.muted, fontFamily: fonts.medium, fontSize: 10 },
   rankAction: { width: 34, height: 30, borderRadius: 10, backgroundColor: C.green, alignItems: "center", justifyContent: "center" },
-  mapToggle: { position: "absolute", bottom: 84, right: 22, backgroundColor: C.green, borderRadius: 24, paddingHorizontal: 18, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  mapToggle: { position: "absolute", bottom: 16, right: 22, backgroundColor: C.green, borderRadius: 24, paddingHorizontal: 18, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   backdrop: {
     flex: 1,
     backgroundColor: "#08110ecc",

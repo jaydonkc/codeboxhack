@@ -86,3 +86,26 @@ test("live places never silently measure distance from SLO when location is unse
   assert.equal(distance(item), null);
   assert.equal(distance(item, { lat: 34.05, lng: -118.24 }), 0);
 });
+
+test("place photos refresh references, request one image on demand, and preserve author credit without exposing credentials", async () => {
+  const calls: { url: string; options?: RequestInit }[] = [];
+  const fetcher = (async (url: any, options?: RequestInit) => {
+    calls.push({ url: String(url), options });
+    return new Response(JSON.stringify(calls.length === 1 ? { photos: [{ name: "places/ChIJ-test/photos/abc_123", authorAttributions: [{ displayName: "Photographer", uri: "//maps.google.com/contrib/123" }] }] } : { photoUri: "https://lh3.googleusercontent.com/photo-123" }));
+  }) as typeof fetch;
+  const result = await queryPlaces({ action: "photo", id: "google:ChIJ-test", index: 0 }, "private-key", fetcher);
+  assert.equal(result.photoCount, 1);
+  assert.equal(result.photo?.uri, "https://lh3.googleusercontent.com/photo-123");
+  assert.deepEqual(result.photo?.authors, [{ name: "Photographer", url: "https://maps.google.com/contrib/123" }]);
+  assert.equal((calls[0].options?.headers as Record<string, string>)["X-Goog-FieldMask"], "photos");
+  assert.match(calls[1].url, /maxWidthPx=1600.*skipHttpRedirect=true/);
+  assert.ok(!JSON.stringify(result).includes("private-key"));
+  assert.ok(!JSON.stringify(result).includes("abc_123"));
+});
+test("missing photos are empty, and invalid indices or unexpected resource names never request an image", async () => {
+  assert.deepEqual(await queryPlaces({ action: "photo", id: "abc", index: 0 }, "key", mock({}).fetcher), { photoCount: 0 });
+  for (const index of [-1, 10, 1.5]) assert.throws(() => validateRequest({ action: "photo", id: "abc", index }), RequestError);
+  const m = mock({ photos: [{ name: "places/other/photos/../../secret" }] });
+  await assert.rejects(queryPlaces({ action: "photo", id: "abc", index: 0 }, "key", m.fetcher), RequestError);
+  assert.equal(m.calls.length, 1);
+});

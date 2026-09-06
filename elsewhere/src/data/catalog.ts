@@ -1,5 +1,6 @@
 import source from "./slo.json";
 import geocodes from "./geocodes.json";
+import type { Submission } from "../core/submissions";
 export type Experience = {
   id: string;
   name: string;
@@ -21,6 +22,7 @@ export type Experience = {
   locationNote: string;
   coordinateSource?: string;
   provider?: "google";
+  submission?: Submission;
   attributions?: { name: string; url?: string }[];
 };
 export const catalog: Experience[] = source.experiences.map((x) => {
