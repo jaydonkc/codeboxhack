@@ -123,8 +123,8 @@ export default function ExperienceMap({
           <Text style={s.primaryText}>{locating ? "Locating…" : "My location"}</Text>
         </Pressable>
       )}
-      {!!locationError && <View style={{ position: "absolute", bottom: 80, left: 12, right: 12, backgroundColor: C.ink, padding: 12 }}>
-        <Text accessibilityRole="alert" style={{ color: "white" }}>{locationError}</Text>
+      {!!locationError && <View style={{ position: "absolute", bottom: 80, left: 12, right: 12, backgroundColor: C.surface, padding: 12 }}>
+        <Text accessibilityRole="alert" style={{ color: C.ink }}>{locationError}</Text>
       </View>}
     </View>
   );

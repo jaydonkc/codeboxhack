@@ -1,0 +1,312 @@
+{
+  "sloma": [
+    {
+      "id": "sloma-1",
+      "file": "sloma-1.jpg",
+      "alt": "The Mission Plaza entrance to the San Luis Obispo Museum of Art",
+      "credit": "San Luis Obispo Museum of Art",
+      "sourceUrl": "https://sloma.org/",
+      "originalUrl": "https://sloma.org/wp-content/uploads/2025/09/fall-25-banner.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 900,
+      "height": 600,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "sloma-2",
+      "file": "sloma-2.jpg",
+      "alt": "Visitors looking at a rainbow artwork inside SLOMA",
+      "credit": "San Luis Obispo Museum of Art",
+      "sourceUrl": "https://sloma.org/visit/",
+      "originalUrl": "https://sloma.org/wp-content/uploads/2025/04/visit-400x400-1-400x400.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 400,
+      "height": 400,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "downtown-farmers-market": [
+    {
+      "id": "downtown-farmers-market-1",
+      "file": "downtown-farmers-market-1.jpg",
+      "alt": "Stalls and visitors at the Downtown SLO Farmers’ Market",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/image-gallery/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2023/11/230608-APP-130-1024x683.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1024,
+      "height": 683,
+      "license": "Visit SLO credited gallery use",
+      "reuseNote": "Free image gallery requests Visit SLO credit; resized and JPEG compressed."
+    }
+  ],
+  "cerro-san-luis": [
+    {
+      "id": "cerro-san-luis-1",
+      "file": "cerro-san-luis-1.jpg",
+      "alt": "Cerro San Luis and the surrounding San Luis Obispo valley at sunset",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/things-to-do/outdoor-activities/hiking/cerro-san-luis-natural-reserve/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2019/08/KRzTdUS3.jpeg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 719,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "cerro-san-luis-2",
+      "file": "cerro-san-luis-2.jpg",
+      "alt": "Wildflowers beside the trail on Cerro San Luis",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/things-to-do/outdoor-activities/hiking/cerro-san-luis-natural-reserve/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2017/06/813a500c96d5b2ccf638cfaf7c13a0b2-2.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 712,
+      "height": 580,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "bishop-peak": [
+    {
+      "id": "bishop-peak-1",
+      "file": "bishop-peak-1.jpg",
+      "alt": "The rocky summit of Bishop Peak above its grassy slopes",
+      "credit": "SLO County Parks",
+      "sourceUrl": "https://slocountyparks.com/trails/bishop-peak-natural-area/",
+      "originalUrl": "https://slocountyparks.com/wp-content/uploads/2015/03/Bishop-Peak-highlight-imagesBP_DSC0074b.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 850,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "bishop-peak-2",
+      "file": "bishop-peak-2.jpg",
+      "alt": "Hikers on the Bishop Peak trail",
+      "credit": "SLO County Parks",
+      "sourceUrl": "https://slocountyparks.com/trails/bishop-peak-natural-area/",
+      "originalUrl": "https://slocountyparks.com/wp-content/uploads/2015/03/Bishop-Peak-highlight-images1_DSC0054.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 850,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "slo-botanical-garden": [
+    {
+      "id": "slo-botanical-garden-1",
+      "file": "slo-botanical-garden-1.jpg",
+      "alt": "The entrance gate at San Luis Obispo Botanical Garden",
+      "credit": "Daderot · Wikimedia Commons",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:San_Luis_Obispo_Botanical_Garden_-_San_Luis_Obispo,_CA_-_DSC05862.JPG",
+      "originalUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8b/San_Luis_Obispo_Botanical_Garden_-_San_Luis_Obispo%2C_CA_-_DSC05862.JPG/1280px-San_Luis_Obispo_Botanical_Garden_-_San_Luis_Obispo%2C_CA_-_DSC05862.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 853,
+      "license": "CC0 1.0",
+      "reuseNote": "CC0; resized and JPEG compressed.",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+    },
+    {
+      "id": "slo-botanical-garden-2",
+      "file": "slo-botanical-garden-2.jpg",
+      "alt": "Garden paths, benches, and the outdoor amphitheater at SLO Botanical Garden",
+      "credit": "Daderot · Wikimedia Commons",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:San_Luis_Obispo_Botanical_Garden_-_San_Luis_Obispo,_CA_-_DSC05977.JPG",
+      "originalUrl": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/77/San_Luis_Obispo_Botanical_Garden_-_San_Luis_Obispo%2C_CA_-_DSC05977.JPG/1280px-San_Luis_Obispo_Botanical_Garden_-_San_Luis_Obispo%2C_CA_-_DSC05977.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 853,
+      "license": "CC0 1.0",
+      "reuseNote": "CC0; resized and JPEG compressed.",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+    }
+  ],
+  "leaning-pine-arboretum": [
+    {
+      "id": "leaning-pine-arboretum-1",
+      "file": "leaning-pine-arboretum-1.jpg",
+      "alt": "The leafy entrance garden at Cal Poly’s Leaning Pine Arboretum",
+      "credit": "Cal Poly Plant Sciences",
+      "sourceUrl": "https://plantsciences.calpoly.edu/LPA",
+      "originalUrl": "https://content-calpoly-edu.s3.amazonaws.com/plantsciences/1/images/entry%20garden.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 960,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "leaning-pine-arboretum-2",
+      "file": "leaning-pine-arboretum-2.jpg",
+      "alt": "A shaded path through the arboretum’s Mediterranean garden",
+      "credit": "Cal Poly Plant Sciences",
+      "sourceUrl": "https://plantsciences.calpoly.edu/LPA",
+      "originalUrl": "https://content-calpoly-edu.s3.amazonaws.com/plantsciences/1/images/Mediterranean%20Garden%201.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1200,
+      "height": 800,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "leaning-pine-arboretum-3",
+      "file": "leaning-pine-arboretum-3.jpg",
+      "alt": "Clipped hedges and lawn in the arboretum’s formal garden",
+      "credit": "Cal Poly Plant Sciences",
+      "sourceUrl": "https://plantsciences.calpoly.edu/LPA",
+      "originalUrl": "https://content-calpoly-edu.s3.amazonaws.com/plantsciences/1/images/formal%20garden.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 960,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "slo-skate-park": [
+    {
+      "id": "slo-skate-park-1",
+      "file": "slo-skate-park-1.jpg",
+      "alt": "A skateboarder riding the concrete bowl at SLO Skate Park",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/things-to-do/outdoor-activities/parks-in-san-luis-obispo/slo-skate-park-santa-rosa-park/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2015/10/Skate-Image.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1200,
+      "height": 800,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "anam-cre-pottery": [
+    {
+      "id": "anam-cre-pottery-1",
+      "file": "anam-cre-pottery-1.jpg",
+      "alt": "Shaping clay on a pottery wheel at Anam Cré",
+      "credit": "Anam Cré Pottery Studio",
+      "sourceUrl": "https://www.anamcre.com/",
+      "originalUrl": "https://images.squarespace-cdn.com/content/v1/620d2ecd5aa8f56dea2a3ec6/1baea486-8c8a-4a9f-a0ea-e03f2fcdfdda/331A2075.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 1280,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "anam-cre-pottery-2",
+      "file": "anam-cre-pottery-2.jpg",
+      "alt": "Pottery wheels and work tables inside Anam Cré’s studio",
+      "credit": "Anam Cré Pottery Studio",
+      "sourceUrl": "https://www.anamcre.com/",
+      "originalUrl": "https://images.squarespace-cdn.com/content/v1/620d2ecd5aa8f56dea2a3ec6/b90848a5-39ab-4d26-af6a-b2cfaa80ce60/IMG_4498.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 854,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    },
+    {
+      "id": "anam-cre-pottery-3",
+      "file": "anam-cre-pottery-3.jpg",
+      "alt": "A student throwing a ceramic bowl at Anam Cré",
+      "credit": "Anam Cré Pottery Studio",
+      "sourceUrl": "https://www.anamcre.com/",
+      "originalUrl": "https://images.squarespace-cdn.com/content/v1/620d2ecd5aa8f56dea2a3ec6/fd0510c7-c0fd-459a-92bb-3443a8583c80/wheel+lesson.jpeg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 853,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "history-center": [
+    {
+      "id": "history-center-1",
+      "file": "history-center-1.jpg",
+      "alt": "The History Center in SLO’s red brick Carnegie Library building",
+      "credit": "History Center of San Luis Obispo County",
+      "sourceUrl": "https://www.historycenterslo.org/about",
+      "originalUrl": "https://irp.cdn-website.com/09c43e34/dms3rep/multi/opt/651775837-1920x1361-591w.jpeg",
+      "checkedAt": "2026-09-06",
+      "width": 590,
+      "height": 418,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "bubblegum-alley": [
+    {
+      "id": "bubblegum-alley-1",
+      "file": "bubblegum-alley-1.jpg",
+      "alt": "The gum-covered walls of Bubblegum Alley",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/image-gallery/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2023/11/DSC08387-1024x683.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1024,
+      "height": 683,
+      "license": "Visit SLO credited gallery use",
+      "reuseNote": "Free image gallery requests Visit SLO credit; resized and JPEG compressed."
+    },
+    {
+      "id": "bubblegum-alley-2",
+      "file": "bubblegum-alley-2.jpg",
+      "alt": "Visitors blowing bubbles in Bubblegum Alley",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/neighborhoods/meet-us-in-downtown/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2024/03/150331-APP-104-1024x683.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1024,
+      "height": 683,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ],
+  "downtown-creek-walk": [
+    {
+      "id": "downtown-creek-walk-1",
+      "file": "downtown-creek-walk-1.jpg",
+      "alt": "Walking through the tree-lined streets of Downtown San Luis Obispo",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/image-gallery/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2023/11/DeFrisco_SLOTBID_012220_0589-1024x683.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1024,
+      "height": 683,
+      "license": "Visit SLO credited gallery use",
+      "reuseNote": "Free image gallery requests Visit SLO credit; resized and JPEG compressed."
+    },
+    {
+      "id": "downtown-creek-walk-2",
+      "file": "downtown-creek-walk-2.jpg",
+      "alt": "The lawn and walkways at Mission Plaza in Downtown SLO",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/image-gallery/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2023/11/230629-APP-205-1024x677.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1024,
+      "height": 677,
+      "license": "Visit SLO credited gallery use",
+      "reuseNote": "Free image gallery requests Visit SLO credit; resized and JPEG compressed."
+    },
+    {
+      "id": "downtown-creek-walk-3",
+      "file": "downtown-creek-walk-3.jpg",
+      "alt": "An aerial view over Downtown San Luis Obispo toward the hills",
+      "credit": "Visit SLO",
+      "sourceUrl": "https://visitslo.com/neighborhoods/meet-us-in-downtown/",
+      "originalUrl": "https://visitslo.com/wp-content/uploads/2024/03/230530_DJI_0496_downtown-2000x1124.jpg",
+      "checkedAt": "2026-09-06",
+      "width": 1280,
+      "height": 719,
+      "license": "Official publisher photo; no open license stated",
+      "reuseNote": "Sourced from the official venue or destination page for this local prototype. Attribution does not grant a license; confirm reuse rights before public distribution. Resized and JPEG compressed."
+    }
+  ]
+}

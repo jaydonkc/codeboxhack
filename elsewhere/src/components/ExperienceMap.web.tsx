@@ -65,8 +65,19 @@ export default function ExperienceMap({
           maxZoom: 19,
         },
       ).addTo(m);
-      tiles.on("tileerror", () => setTileError(true));
-      tiles.on("load", () => setTileError(false));
+      // Leaflet also fires "load" when requests finish with errors. Keep the
+      // warning until failed tiles recover or leave the visible map.
+      const failedTiles = new Set<HTMLElement>();
+      tiles.on("tileerror", (event) => {
+        failedTiles.add(event.tile);
+        setTileError(true);
+      });
+      const clearFailedTile = (event: import("leaflet").TileEvent) => {
+        failedTiles.delete(event.tile);
+        setTileError(failedTiles.size > 0);
+      };
+      tiles.on("tileload", clearFailedTile);
+      tiles.on("tileunload", clearFailedTile);
       m.on("moveend", () => {
         const b = m.getBounds();
         setBounds({

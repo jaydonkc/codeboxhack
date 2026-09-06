@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   BackHandler,
+  Easing,
   Image,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -21,13 +24,11 @@ import {
   DMSans_700Bold,
 } from "@expo-google-fonts/dm-sans";
 import { DMSerifDisplay_400Regular } from "@expo-google-fonts/dm-serif-display";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import { C, fonts, s } from "./src/theme";
 import {
   byId,
   catalog,
-  demoGuide,
   demoReviews,
   distance,
   Experience,
@@ -41,14 +42,25 @@ import {
 import ExperienceMap from "./src/components/ExperienceMap";
 import BottomSheet from "./src/components/Sheet";
 import ActivityDetail from "./src/components/ActivityDetail";
+import Onboarding from "./src/components/Onboarding";
+import { useStoredData } from "./src/components/useStoredData";
+import { useReducedMotion } from "./src/components/useReducedMotion";
+import { completeOnboarding, dismissFirstSavePrompt, toggleDraftInterest, toggleSavedExperience } from "./src/core/storage";
+import ActivityPicker from "./src/components/ActivityPicker";
+import VisitDateField from "./src/components/VisitDateField";
+import GuideLibrary, { GuideCover, type GuideLibraryTab } from "./src/components/GuideLibrary";
+import GuideDetail from "./src/components/GuideDetail";
+import { exampleGuides, type ExperienceGuide } from "./src/data/guides";
+import DistanceSlider from "./src/components/DistanceSlider";
+import { distanceSliderLabel, PRICE_OPTIONS, priceFilterLabel } from "./src/core/filterOptions";
+import { formatVisitDate, localDateKey } from "./src/core/visitDate";
 import { getNicheness } from "./src/data/nicheness";
-import { createPersonalGuide, isFavorite, updateVisitDetails } from "./src/core/personal";
+import { createPersonalGuide, isFavorite, saveRankedVisit, updateVisitDetails } from "./src/core/personal";
 import {
   answerRanking,
   Band,
   beginRanking,
   currentOpponent,
-  finishRanking,
   Preference,
   RankingAnswer,
   RankingSession,
@@ -60,6 +72,7 @@ type Sheet =
   | "filters"
   | "city"
   | "log"
+  | "add-activity"
   | "edit-visit"
   | "niche"
   | "share"
@@ -69,48 +82,16 @@ type Sheet =
   | "experience-share"
   | "experience-actions"
   | null;
-type Stored = {
-  version: 1;
-  saved: string[];
-  preferences: Preference[];
-  awareness: Record<string, string>;
-  guide: string[];
-  guideCreated: boolean;
-  guideNotes: Record<string, string>;
-  interests: string[];
-  demoSocial: boolean;
-  city: string;
-};
-const fresh: Stored = {
-  version: 1,
-  saved: [],
-  preferences: [],
-  awareness: {},
-  guide: [],
-  guideCreated: false,
-  guideNotes: {},
-  interests: ["Relax", "Creative"],
-  demoSocial: true,
-  city: "San Luis Obispo",
-};
 const seed: Preference[] = [
   { id: "sloma", band: "liked", rank: 1, again: true },
   { id: "leaning-pine-arboretum", band: "liked", rank: 2, again: true },
   { id: "downtown-creek-walk", band: "liked", rank: 3, again: true },
 ];
-const friendGuideNotes: Record<string, string> = {
-  sloma: "Start with a little art beside Mission Plaza.",
-  "leaning-pine-arboretum": "A quiet garden detour when you want to slow down.",
-  "downtown-farmers-market": "Make Thursday evening your downtown night.",
-  "anam-cre-pottery":
-    "Book a class and make something to remember the trip by.",
-};
 const bands: Record<Band, string> = {
   liked: "Liked it",
   okay: "It was okay",
   disliked: "Didn’t like it",
 };
-const validId = (id: string) => catalog.some((x) => x.id === id);
 const I = ({
   name,
   size = 20,
@@ -207,9 +188,11 @@ export default function App() {
   );
 }
 function Elsewhere() {
-  const [data, setData] = useState<Stored>(fresh),
-    [hydrated, setHydrated] = useState(false),
-    [page, setPage] = useState<Page>("discover"),
+  const { data, setData, loaded: hydrated, loadError, saveError, retryLoad, retrySave } = useStoredData();
+  const reducedMotion = useReducedMotion();
+  const appOpacity = useRef(new Animated.Value(1)).current;
+  const [enteringDiscover, setEnteringDiscover] = useState(false);
+  const [page, setPage] = useState<Page>("discover"),
     [sheet, setSheet] = useState<Sheet>(null);
   const [selected, setSelected] = useState("sloma"),
     [listTab, setListTab] = useState("saved"),
@@ -223,72 +206,41 @@ function Elsewhere() {
       vibes: [],
       query: "",
     });
-  const [owner, setOwner] = useState<"you" | "emma">("emma"),
+  const [owner, setOwner] = useState<string>("emma"),
     [session, setSession] = useState<RankingSession | null>(null),
     [note, setNote] = useState(""),
-    [again, setAgain] = useState(false);
+    [again, setAgain] = useState(false),
+    [visitedOn, setVisitedOn] = useState<string | undefined>();
+  const [guideLibraryTab, setGuideLibraryTab] = useState<GuideLibraryTab>("explore");
+  const [guideMap, setGuideMap] = useState(false);
   const [toast, setToast] = useState(""),
+    [toastSavedId, setToastSavedId] = useState<string | null>(null),
     [cityQuery, setCityQuery] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     scroll = useRef<ScrollView>(null),
-    returnPage = useRef<Page>("discover"),
-    queue = useRef(Promise.resolve());
-  function notify(message: string) {
+    returnPage = useRef<Page>("discover");
+  function notify(message: string, savedId: string | null = null) {
     setToast(message);
+    setToastSavedId(savedId);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(""), 3000);
+    timer.current = setTimeout(() => setToast(""), savedId ? 8000 : 3000);
   }
-  useEffect(() => {
-    let live = true;
-    AsyncStorage.getItem("elsewhere-demo-v1")
-      .then((raw) => {
-        if (raw && live) {
-          const p = JSON.parse(raw);
-          if (
-            p.version === 1 &&
-            Array.isArray(p.preferences) &&
-            Array.isArray(p.saved)
-          )
-            setData({
-              ...fresh,
-              ...p,
-              city:
-                typeof p.city === "string" && p.city.trim()
-                  ? p.city
-                  : fresh.city,
-              saved: p.saved.filter(validId),
-              guide: (p.guide || []).filter(validId),
-              guideCreated: Boolean(p.guideCreated || p.guide?.length),
-              preferences: p.preferences.filter(
-                (r: Preference) =>
-                  validId(r.id) &&
-                  ["liked", "okay", "disliked"].includes(r.band) &&
-                  (r.rank === null || (Number.isFinite(r.rank) && r.rank >= 1)),
-              ),
-            });
-        }
-      })
-      .catch(() => notify("Could not load your saved experiences."))
-      .finally(() => {
-        if (live) setHydrated(true);
-      });
-    return () => {
-      live = false;
-      if (timer.current) clearTimeout(timer.current);
-    };
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
   }, []);
   useEffect(() => {
-    if (hydrated)
-      queue.current = queue.current
-        .then(() =>
-          AsyncStorage.setItem("elsewhere-demo-v1", JSON.stringify(data)),
-        )
-        .catch(() => notify("Could not save your changes. Please try again."));
-  }, [data, hydrated]);
+    if (!enteringDiscover) return;
+    const animation = Animated.timing(appOpacity, {
+      toValue: 1, duration: reducedMotion === false ? 260 : 0,
+      easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== "web",
+    });
+    animation.start(({ finished }) => { if (finished) setEnteringDiscover(false); });
+    return () => animation.stop();
+  }, [appOpacity, enteringDiscover, reducedMotion]);
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (sheet) {
-        setSheet(null);
+        closeSheet();
         return true;
       }
       if (page !== "discover") {
@@ -298,7 +250,7 @@ function Elsewhere() {
       return false;
     });
     return () => sub.remove();
-  }, [sheet, page]);
+  }, [sheet, page, session, note, again, visitedOn]);
   const scores = useMemo(
       () => scorePreferences(data.preferences),
       [data.preferences],
@@ -315,17 +267,15 @@ function Elsewhere() {
     setSelected(id);
     nav("detail");
   }
-  function guide(who: "you" | "emma") {
-    setOwner(who === "emma" && !data.demoSocial ? "you" : who);
+  function guide(who: string) {
+    setOwner(who !== "you" && !data.demoSocial ? "you" : who);
+    setGuideMap(false);
     nav("guide");
   }
   function save(id: string) {
-    setData((d) => ({
-      ...d,
-      saved: d.saved.includes(id)
-        ? d.saved.filter((v) => v !== id)
-        : [...d.saved, id],
-    }));
+    const removing = data.saved.includes(id);
+    setData((d) => toggleSavedExperience(d, id));
+    notify(removing ? "Removed from Want to try" : "Saved to Want to try", removing ? null : id);
   }
   function filter(p: Partial<Filters>) {
     setFilters((f) => ({ ...f, ...p }));
@@ -369,7 +319,17 @@ function Elsewhere() {
     const old = data.preferences.find((p) => p.id === id);
     setNote(old?.note || "");
     setAgain(old?.again || false);
+    setVisitedOn(old ? old.visitedOn : localDateKey());
     setSheet("log");
+  }
+  function updateRanking(next: RankingSession) {
+    setSession(next);
+    setData((d) => saveRankedVisit(d, next, { note, again, visitedOn }));
+  }
+  function closeSheet() {
+    if (sheet === "log" && session)
+      setData((d) => saveRankedVisit(d, session, { note, again, visitedOn }));
+    setSheet(null);
   }
   function editVisit(id: string) {
     const visit = data.preferences.find((p) => p.id === id);
@@ -377,6 +337,7 @@ function Elsewhere() {
     setSelected(id);
     setNote(visit.note || "");
     setAgain(visit.again || false);
+    setVisitedOn(visit.visitedOn);
     setSheet("edit-visit");
   }
   function fit(e: Experience) {
@@ -394,14 +355,6 @@ function Elsewhere() {
       w += similar;
     }
     return w ? (explicit * 2 + total) / (2 + w) : explicit;
-  }
-  function reason(e: Experience) {
-    if (data.preferences.some((p) => p.id === e.id && p.band === "liked"))
-      return "A good one to do again";
-    const v = e.vibes.filter((v) => data.interests.includes(v));
-    return v.length
-      ? `Fits your ${v.join(" + ").toLowerCase()} interests`
-      : "A different kind of day to try";
   }
   const cityCatalog = catalog.filter(
     (e) =>
@@ -423,25 +376,30 @@ function Elsewhere() {
       ? (scores[b.id] ?? -1) - (scores[a.id] ?? -1)
       : fit(b) - fit(a),
   );
-  const guideIds = owner === "you" ? data.guide : demoGuide;
+  const personalGuide: ExperienceGuide = {
+    id: "you", title: "My SLO favorites", author: "You", city: "San Luis Obispo",
+    description: "My favorite experiences in San Luis Obispo.",
+    coverId: data.guide[0] || "", experienceIds: data.guide, notes: data.guideNotes,
+  };
+  const activeGuide = owner === "you" || !data.demoSocial
+    ? personalGuide : exampleGuides.find((item) => item.id === owner) || exampleGuides[0];
+  const guideIds = activeGuide.experienceIds;
   const guideText =
-    `${owner === "you" ? "My SLO favorites" : "A slow weekend in SLO"}\nSan Luis Obispo\n\n` +
-    guideIds
-      .map(
-        (id, i) =>
-          `${i + 1}. ${byId(id).name}\n${owner === "you" ? data.guideNotes[id] || "" : friendGuideNotes[id] || ""}\n${byId(id).sourceUrl}`,
-      )
-      .join("\n\n");
+    `${activeGuide.title}\n${activeGuide.city}\nBy ${activeGuide.author}\n\n` +
+    guideIds.map((id, i) =>
+      `${i + 1}. ${byId(id).name}\n${activeGuide.notes[id] || ""}\n${byId(id).sourceUrl}`,
+    ).join("\n\n");
   const official = (url: string) =>
     Linking.openURL(url).catch(() =>
       notify("Could not open the official source."),
     );
   function score(e: Experience) {
+    const personal = done.has(e.id);
     return (
       <View style={s.score}>
-        <I name="people-outline" color={C.green} size={14} />
+        <I name={personal ? "person-outline" : "people-outline"} color={C.green} size={14} />
         <T style={s.scoreText}>
-          {page === "lists" && listTab === "done"
+          {personal
             ? scores[e.id] === null
               ? "Not fully ranked"
               : `You ${scores[e.id]?.toFixed(1)}`
@@ -453,6 +411,7 @@ function Elsewhere() {
     );
   }
   function card(e: Experience) {
+    const visit = data.preferences.find((p) => p.id === e.id);
     return (
       <View style={s.card} key={e.id}>
         <View style={s.cardBody}>
@@ -512,15 +471,21 @@ function Elsewhere() {
               </T>
             </Pressable>
           </View>
-          <View style={s.reason}>
-            <I name="sparkles-outline" color={C.coral} size={15} />
-            <T style={[s.tiny, { flex: 1 }]}>{reason(e)}</T>
-            {!done.has(e.id) && <T style={s.tiny}>New to you</T>}
-          </View>
           {page === "lists" && listTab === "done" && (
-            <Button secondary onPress={() => log(e.id)}>
-              {scores[e.id] === null ? "Finish ranking" : "Rerank"}
-            </Button>
+            <>
+              <Pressable accessibilityRole="button"
+                accessibilityLabel={`Edit visit date for ${e.name}`}
+                onPress={() => editVisit(e.id)}
+                style={[s.row, { minHeight: 44 }]}>
+                <I name="calendar-outline" color={C.muted} size={16} />
+                <T style={s.muted}>
+                  {visit?.visitedOn ? `Visited ${formatVisitDate(visit.visitedOn)}` : "Add visit date"}
+                </T>
+              </Pressable>
+              <Button secondary onPress={() => log(e.id)}>
+                {scores[e.id] === null ? "Finish ranking" : "Rerank"}
+              </Button>
+            </>
           )}
         </View>
       </View>
@@ -528,25 +493,7 @@ function Elsewhere() {
   }
   function teaser() {
     if (!data.demoSocial) return null;
-    return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => guide("emma")}
-        style={s.guide}
-      >
-        <View style={s.row}>
-          <View style={s.avatar}>
-            <T>EM</T>
-          </View>
-          <View>
-            <T style={s.eyebrow}>A FRIEND’S CITY GUIDE</T>
-            <T style={s.tiny}>Emma · 4 picks</T>
-          </View>
-        </View>
-        <T style={s.serif}>A slow weekend{"\n"}in SLO.</T>
-        <T style={s.muted}>4 things worth making time for ↗</T>
-      </Pressable>
-    );
+    return <GuideCover guide={exampleGuides[0]} compact onPress={() => guide("emma")} />;
   }
   function browse() {
     return (
@@ -602,7 +549,7 @@ function Elsewhere() {
                 style={[s.tab, active && s.tabActive]}
                 onPress={() => {
                   if (key === "guides")
-                    guide(data.guideCreated || data.guide.length || !data.demoSocial ? "you" : "emma");
+                    nav("friends");
                   else if (key === "discover") nav("discover");
                   else {
                     setListTab(key);
@@ -643,7 +590,7 @@ function Elsewhere() {
           />
           <Pill
             label={
-              filters.budget === null ? "Any price" : `Under $${filters.budget}`
+              filters.budget === null ? "Any price" : priceFilterLabel(filters.budget)
             }
             active={filters.budget !== null}
             onPress={() => setSheet("filters")}
@@ -685,6 +632,14 @@ function Elsewhere() {
           </View>
         </View>
         <View style={s.pad}>
+          {page === "discover" && !map && mode !== "familiar" && results.length > 0 &&
+            !data.onboarding.firstSavePromptDismissed && data.saved.length === 0 && (
+            <View style={[s.notice, s.between, { marginBottom: 16 }]}>
+              <I name="bookmark-outline" color={C.green} size={22} />
+              <T style={[s.muted, { flex: 1 }]}>See something you’d try? Save it for later.</T>
+              <Icon name="close" label="Dismiss saving tip" onPress={() => setData(dismissFirstSavePrompt)} />
+            </View>
+          )}
           {map ? (
             <View style={s.stack}>
               <ExperienceMap
@@ -743,19 +698,7 @@ function Elsewhere() {
               </Button>
             </View>
           )}
-          {page === "lists" &&
-            listTab === "done" &&
-            data.preferences.length > 0 && (
-              <Button
-                onPress={() => {
-                  setData(createPersonalGuide);
-                  guide("you");
-                }}
-              >
-                {data.guideCreated || data.guide.length ? "Open my SLO guide" : "Create my SLO guide"}
-              </Button>
-            )}
-          <View style={{ marginVertical: 18 }}>{teaser()}</View>
+          {page === "discover" && <View style={{ marginVertical: 18 }}>{teaser()}</View>}
         </View>
       </>
     );
@@ -796,6 +739,7 @@ function Elsewhere() {
         awareness={data.awareness[x.id]}
         note={pref?.note}
         again={pref?.again}
+        visitedOn={pref?.visitedOn}
         onBack={() => nav(returnPage.current)}
         onShare={() => setSheet("experience-share")}
         onMore={() => setSheet("experience-actions")}
@@ -829,130 +773,41 @@ function Elsewhere() {
     );
   }
   function guideView() {
-    return (
-      <View style={[s.pad, s.stack]}>
-        <View style={s.between}>
-          <Icon name="arrow-back" label="Back" onPress={() => nav("friends")} />
-          <T style={s.eyebrow}>SAN LUIS OBISPO</T>
-          <Icon
-            name="share-outline"
-            label="Share guide"
-            onPress={() => setSheet("share")}
-          />
-        </View>
-        <Image
-          source={require("./assets/catalog/slo-hills.jpg")}
-          style={[s.photo, { height: 190, borderRadius: 20 }]}
-          accessibilityLabel="Sunlit San Luis Obispo hills"
-        />
-        <T style={s.tiny}>SLO scenery · Photo: Visit SLO</T>
-        <T style={s.serif}>
-          {owner === "you" ? "My SLO favorites." : "A slow weekend\nin SLO."}
-        </T>
-        <T style={s.muted}>
-          {owner === "you"
-            ? "Your picks, in your order"
-            : "A city guide by Emma"}
-        </T>
-        <View style={s.row}>
-          <Button
-            secondary
-            onPress={() => {
-              setData((d) => ({
-                ...d,
-                saved: [...new Set([...d.saved, ...guideIds])],
-              }));
-              notify("Guide experiences saved.");
-            }}
-          >
-            Save all
-          </Button>
-          <Button secondary onPress={() => setMap(!map)}>
-            {map ? "List" : "Map"}
-          </Button>
-        </View>
-        {map && (
-          <ExperienceMap
-            items={guideIds.map(byId)}
-            selected={selected}
-            onSelect={detail}
-          />
-        )}
-        <View>
-          {guideIds.map((id, i) => (
-            <View key={id}>
-              <View style={s.guideRow}>
-                <T style={s.rank}>{i + 1}</T>
-                <Pressable
-                  accessibilityRole="button"
-                  style={{ flex: 1 }}
-                  onPress={() => detail(id)}
-                >
-                  <T style={s.heading}>{byId(id).name}</T>
-                  <T style={s.tiny}>{priceLabel(byId(id))}</T>
-                </Pressable>
-                {owner === "you" ? (
-                  <View>
-                    <Icon
-                      name="arrow-up"
-                      label={`Move ${byId(id).name} up`}
-                      onPress={() => {
-                        if (i > 0)
-                          setData((d) => {
-                            const g = [...d.guide];
-                            [g[i - 1], g[i]] = [g[i], g[i - 1]];
-                            return { ...d, guide: g };
-                          });
-                      }}
-                    />
-                    <Icon
-                      name="close"
-                      label={`Remove ${byId(id).name} from guide`}
-                      onPress={() =>
-                        setData((d) => ({
-                          ...d,
-                          guide: d.guide.filter((v) => v !== id),
-                        }))
-                      }
-                    />
-                  </View>
-                ) : (
-                  <Icon
-                    name={
-                      data.saved.includes(id) ? "bookmark" : "bookmark-outline"
-                    }
-                    label={`Save ${byId(id).name}`}
-                    onPress={() => save(id)}
-                  />
-                )}
-              </View>
-              {owner === "you" && (
-                <TextInput
-                  accessibilityLabel={`Guide note for ${byId(id).name}`}
-                  placeholder="Why recommend it?"
-                  placeholderTextColor={C.muted}
-                  value={data.guideNotes[id] || ""}
-                  onChangeText={(text) =>
-                    setData((d) => ({
-                      ...d,
-                      guideNotes: { ...d.guideNotes, [id]: text },
-                    }))
-                  }
-                  style={[s.inputBox, { marginTop: 8 }]}
-                />
-              )}
-              {owner === "emma" && !!friendGuideNotes[id] && (
-                <T style={[s.muted, { marginTop: 8 }]}>{friendGuideNotes[id]}</T>
-              )}
-            </View>
-          ))}
-        </View>
-        {!guideIds.length && (
-          <T style={s.muted}>Log an experience, then add it to your guide.</T>
-        )}
-        <Button onPress={() => setSheet("share")}>Preview & copy guide</Button>
-      </View>
-    );
+    return <GuideDetail
+      key={activeGuide.id}
+      guide={activeGuide}
+      personal={activeGuide.id === "you"}
+      saved={data.saved}
+      map={guideMap}
+      mapView={guideMap && <ExperienceMap items={guideIds.map(byId)} selected={selected} onSelect={detail} />}
+      onBack={() => nav("friends")}
+      onShare={() => setSheet("share")}
+      onMap={() => setGuideMap(!guideMap)}
+      onSaveAll={() => {
+        setData((d) => ({ ...(guideIds.length ? dismissFirstSavePrompt(d) : d), saved: [...new Set([...d.saved, ...guideIds])] }));
+        notify("Guide experiences saved.", guideIds[0] ?? null);
+      }}
+      onSave={save}
+      onOpen={detail}
+      onMoveUp={(index) => {
+        if (index < 1) return;
+        setData((d) => {
+          const next = [...d.guide];
+          [next[index - 1], next[index]] = [next[index], next[index - 1]];
+          return { ...d, guide: next };
+        });
+      }}
+      onRemove={(id) => setData((d) => ({ ...d, guide: d.guide.filter((value) => value !== id) }))}
+      onNote={(id, value) => setData((d) => ({ ...d, guideNotes: { ...d.guideNotes, [id]: value } }))}
+      onAdd={() => {
+        clearFilters();
+        setData((d) => ({ ...d, city: "San Luis Obispo" }));
+        setSearchOrigin(undefined);
+        setListTab("done");
+        setMap(false);
+        nav(data.preferences.length ? "lists" : "discover");
+      }}
+    />;
   }
   function profile() {
     return (
@@ -1007,6 +862,7 @@ function Elsewhere() {
   function visitFields() {
     return (
       <>
+        <VisitDateField value={visitedOn} onChange={setVisitedOn} />
         <TextInput
           accessibilityLabel="Experience note"
           placeholder="A note for your future self"
@@ -1017,9 +873,9 @@ function Elsewhere() {
           style={[s.inputBox, { minHeight: 85, textAlignVertical: "top" }]}
         />
         <View style={s.between}>
-          <T>I’d do this again</T>
+          <T>Repeatable</T>
           <Switch
-            accessibilityLabel="I’d do this again"
+            accessibilityLabel="Repeatable"
             value={again}
             onValueChange={setAgain}
             trackColor={{ true: "#608451", false: C.line }}
@@ -1031,40 +887,33 @@ function Elsewhere() {
   }
   function logView() {
     const opponent = session ? currentOpponent(session) : null,
-      preview = session ? finishRanking(session, data.preferences) : null,
-      value = preview ? scorePreferences(preview)[x.id] : null;
+      value = session?.status === "placed" ? scores[session.id] : null;
     function answer(a: RankingAnswer) {
-      if (session) setSession(answerRanking(session, a));
+      if (session) updateRanking(answerRanking(session, a));
     }
     function finish() {
       if (!session) return;
-      const next = finishRanking(session, data.preferences).map((p) =>
-        p.id === x.id ? { ...p, note, again } : p,
-      );
-      setData((d) => ({
-        ...d,
-        preferences: next,
-        saved: d.saved.filter((id) => id !== x.id),
-      }));
+      setData((d) => saveRankedVisit(d, session, { note, again, visitedOn }, { savePending: true }));
       setSheet(null);
       notify(
         session.status === "placed"
-          ? "Added to Been. Rankings updated."
+          ? "Ranking saved."
           : "Visit saved. Finish ranking from Been.",
       );
     }
     return (
       <>
-        <T style={s.muted}>{x.name}</T>
+        {session?.status !== "active" && <T style={s.muted}>{x.name}</T>}
         {!session ? (
           <>
             <T style={s.serif}>How was it?</T>
+            <VisitDateField value={visitedOn} onChange={setVisitedOn} />
             {(["liked", "okay", "disliked"] as Band[]).map((b, i) => (
               <Pressable
                 accessibilityRole="button"
                 key={b}
                 onPress={() =>
-                  setSession(beginRanking(x.id, b, data.preferences))
+                  updateRanking(beginRanking(x.id, b, data.preferences))
                 }
                 style={[
                   s.choice,
@@ -1084,39 +933,53 @@ function Elsewhere() {
           </>
         ) : session.status === "active" && opponent ? (
           <>
-            <T style={s.serif}>Which did you{"\n"}enjoy more?</T>
-            <T style={s.tiny}>
-              Comparison {session.compared + 1} of at most 5 ·{" "}
-              {bands[session.band]}
-            </T>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => answer("new")}
-              style={s.choice}
-            >
-              <T style={s.eyebrow}>THE ONE YOU JUST DID</T>
-              <T style={s.heading}>{x.name}</T>
-              <T style={s.muted}>{x.venue}</T>
-            </Pressable>
-            <T style={[s.tiny, { textAlign: "center" }]}>OR</T>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => answer("existing")}
-              style={s.choice}
-            >
-              <T style={s.eyebrow}>FROM YOUR LIST</T>
-              <T style={s.heading}>{byId(opponent).name}</T>
-              <T style={s.muted}>{byId(opponent).venue}</T>
-            </Pressable>
+            <View style={s.comparisonHeader}>
+              <T style={s.comparisonTitle}>Which did you{"\n"}enjoy more?</T>
+              <T style={s.tiny}>
+                Comparison {session.compared + 1} of at most 5 ·{" "}
+                {bands[session.band]}
+              </T>
+            </View>
+            <View style={s.comparisonRow}>
+              {([
+                { experience: x, label: "Just visited", answer: "new" },
+                { experience: byId(opponent), label: "From your list", answer: "existing" },
+              ] as const).map((choice) => (
+                <Pressable
+                  key={choice.answer}
+                  accessibilityRole="button"
+                  accessibilityLabel={`I enjoyed ${choice.experience.name} more`}
+                  accessibilityHint={choice.experience.venue}
+                  onPress={() => answer(choice.answer)}
+                  style={({ pressed }) => [
+                    s.comparisonCard,
+                    pressed && s.comparisonCardPressed,
+                  ]}
+                >
+                  <T style={s.comparisonLabel}>{choice.label}</T>
+                  <View style={s.comparisonIcon}>
+                    <I
+                      name={icons[choice.experience.activityType] || "sparkles-outline"}
+                      size={28}
+                      color={C.green}
+                    />
+                  </View>
+                  <T style={s.comparisonName}>{choice.experience.name}</T>
+                  <T style={s.comparisonVenue}>{choice.experience.venue}</T>
+                </Pressable>
+              ))}
+              <View pointerEvents="none" style={s.comparisonOr}>
+                <T style={s.tiny}>or</T>
+              </View>
+            </View>
             <Button secondary onPress={() => answer("tie")}>
               About the same
             </Button>
             <Button secondary onPress={() => answer("skip")}>
               Can’t compare
             </Button>
-            <T style={s.tiny}>
-              Choose based on personal enjoyment. Skipping never counts as a
-              dislike.
+            <T style={[s.tiny, { textAlign: "center" }]}>
+              Skipping never counts as a dislike.
             </T>
           </>
         ) : (
@@ -1129,7 +992,8 @@ function Elsewhere() {
             {session.status === "placed" ? (
               <>
                 <T style={s.bigNumber}>{value?.toFixed(1)}</T>
-                <T style={s.muted}>Your enjoyment · {bands[session.band]}</T>
+                <T style={s.muted}>Your score · {bands[session.band]}</T>
+                <T style={s.eyebrow}>Saved to Been</T>
                 <T style={s.tiny}>
                   Based on your rankings. Your score adjusts as you try more
                   experiences.
@@ -1144,7 +1008,7 @@ function Elsewhere() {
             {visitFields()}
             <Button onPress={finish}>
               {session.status === "placed"
-                ? "Save to Been"
+                ? "Done"
                 : "Save reaction · rank later"}
             </Button>
             <Button secondary onPress={() => setSession(null)}>
@@ -1156,17 +1020,18 @@ function Elsewhere() {
     );
   }
   function sheetView() {
+    if (sheet === "add-activity") return <ActivityPicker onSelect={log} />;
     if (sheet === "log") return logView();
     if (sheet === "edit-visit")
       return (
         <>
           <T style={s.heading}>{x.name}</T>
-          <T style={s.muted}>Update your note and revisit choice. Your ranking stays the same.</T>
+          <T style={s.muted}>Update your visit date, note, and repeatable choice.</T>
           {visitFields()}
           <Button onPress={() => {
             setData((d) => ({
               ...d,
-              preferences: updateVisitDetails(d.preferences, x.id, { note, again }),
+              preferences: updateVisitDetails(d.preferences, x.id, { note, again, visitedOn }),
             }));
             setSheet(null);
             notify("Visit updated.");
@@ -1178,31 +1043,32 @@ function Elsewhere() {
     if (sheet === "filters")
       return (
         <>
-          <T style={s.heading}>Budget per person</T>
+          <T style={s.heading}>Price</T>
           <View style={s.wrap}>
-            {[null, 0, 15, 30, 50].map((v) => (
+            {PRICE_OPTIONS.map((option) => (
               <Pill
-                key={String(v)}
-                label={v === null ? "Any" : v === 0 ? "Free" : `$${v}`}
-                active={filters.budget === v}
-                onPress={() => filter({ budget: v })}
+                key={option.label}
+                label={option.label}
+                active={filters.budget === option.value}
+                onPress={() => filter({ budget: option.value })}
               />
             ))}
           </View>
           <T style={s.tiny}>
-            Admission only; check extra costs on details. Unknown prices are
-            excluded by a budget limit.
+            {PRICE_OPTIONS.find((option) => option.value === filters.budget)?.description}.
+            {filters.budget !== null ? " Excludes unknown prices." : " Extras may cost more."}
           </T>
-          <T style={s.heading}>Distance from {searchOrigin ? "your location" : "Downtown SLO"}</T>
-          <View style={s.wrap}>
-            {[null, 1, 3, 5, 10].map((v) => (
-              <Pill
-                key={String(v)}
-                label={v === null ? "Any" : `${v} mi`}
-                active={filters.radius === v}
-                onPress={() => filter({ radius: v })}
-              />
-            ))}
+          <View style={{ gap: 6 }}>
+            <View style={s.between}>
+              <T style={s.heading}>Distance</T>
+              <T style={{ color: C.green, fontFamily: fonts.medium }}>{distanceSliderLabel(filters.radius)}</T>
+            </View>
+            <T style={s.tiny}>From {searchOrigin ? "your location" : "Downtown SLO"}</T>
+            <DistanceSlider value={filters.radius} onChange={(radius) => filter({ radius })} />
+            <View style={s.between}>
+              <T style={s.tiny}>1 mi</T>
+              <T style={s.tiny}>Any distance</T>
+            </View>
           </View>
           <T style={s.heading}>The mood</T>
           <View style={s.wrap}>
@@ -1353,7 +1219,7 @@ function Elsewhere() {
               value={data.demoSocial}
               onValueChange={(value) => {
                 setData((d) => ({ ...d, demoSocial: value }));
-                if (!value && owner === "emma") setOwner("you");
+                if (!value && owner !== "you") setOwner("you");
               }}
               trackColor={{ true: "#608451", false: C.line }}
               thumbColor={C.green}
@@ -1410,7 +1276,7 @@ function Elsewhere() {
             {done.has(x.id) ? "Edit your ranking" : "Rank this experience"}
           </Button>
           {done.has(x.id) && (
-            <Button secondary onPress={() => editVisit(x.id)}>Edit visit notes</Button>
+            <Button secondary onPress={() => editVisit(x.id)}>Edit visit details</Button>
           )}
           <Button
             secondary
@@ -1484,7 +1350,7 @@ function Elsewhere() {
         {[
           ["you", "person-outline", "Your profile"],
           ["lists", "bookmark-outline", "Your experiences"],
-          ["friends", "people-outline", "Friends & guides"],
+          ["friends", "book-outline", "Guides"],
         ].map(([p, icon, label]) => (
           <Pressable
             accessibilityRole="button"
@@ -1505,16 +1371,53 @@ function Elsewhere() {
       </>
     );
   }
+  if (loadError)
+    return (
+      <View style={s.outer}>
+        <StatusBar style="light" />
+        <SafeAreaView style={[s.app, s.pad, s.stack, { justifyContent: "center" }]}>
+          <T style={s.serif}>Let’s try that again.</T>
+          <T style={s.muted}>Couldn’t load your saved experiences. Your stored data hasn’t been changed.</T>
+          <Button onPress={retryLoad}>Try loading again</Button>
+        </SafeAreaView>
+      </View>
+    );
   if (!hydrated)
     return (
       <View style={[s.outer, { justifyContent: "center" }]}>
         <ActivityIndicator color={C.green} />
       </View>
     );
+  if (data.onboarding.step === "interests")
+    return (
+      <View style={s.outer}>
+        <StatusBar style="light" />
+        <SafeAreaView style={s.app} edges={["top", "bottom"]}>
+          <Onboarding selected={data.onboarding.draftInterests}
+            onToggle={(interest) => setData((d) => toggleDraftInterest(d, interest))}
+            onComplete={(skip) => {
+              appOpacity.setValue(reducedMotion === false ? 0 : 1);
+              setEnteringDiscover(true);
+              setData((d) => completeOnboarding(d, skip));
+              clearFilters();
+              setMode("all");
+              setMap(false);
+              nav("discover");
+            }}
+            saveError={saveError} onRetrySave={retrySave} />
+        </SafeAreaView>
+      </View>
+    );
   return (
-    <View style={s.outer}>
+    <Animated.View style={[s.outer, { opacity: appOpacity }]}>
       <StatusBar style="light" />
       <SafeAreaView style={s.app} edges={["top", "bottom"]}>
+        {saveError && <View accessibilityLiveRegion="polite" style={[s.notice, s.between, { margin: 12 }]}>
+          <T style={[s.muted, { flex: 1 }]}>Your latest changes haven’t been saved.</T>
+          <Pressable accessibilityRole="button" onPress={retrySave} style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}>
+            <T style={{ color: C.green }}>Retry save</T>
+          </Pressable>
+        </View>}
         {page !== "detail" && (
           <View style={s.header}>
             <Pressable
@@ -1578,32 +1481,42 @@ function Elsewhere() {
           ) : page === "you" ? (
             profile()
           ) : (
-            <View style={[s.pad, s.stack]}>
-              <T style={s.title}>{data.demoSocial ? "From people you trust" : "Your circle"}</T>
-              <T style={s.muted}>
-                {data.demoSocial ? "A city feels smaller with a good recommendation." : "No friend activity yet. You can still build and share your own city guide."}
-              </T>
-              {teaser()}
-              {data.demoSocial && <View style={s.notice}>
-                <T style={s.eyebrow}>A GOOD DAY, SHARED</T>
-                <T>Emma’s picks for a slow afternoon in SLO.</T>
-                <T style={s.muted}>
-                  Art, a garden walk, and something handmade.
-                </T>
-              </View>}
-              <Button secondary onPress={() => guide("you")}>
-                My city guide
-              </Button>
-            </View>
+            <GuideLibrary
+              examples={data.demoSocial ? exampleGuides : []}
+              personal={personalGuide}
+              created={data.guideCreated || data.guide.length > 0}
+              tab={guideLibraryTab}
+              onTab={setGuideLibraryTab}
+              onOpen={guide}
+              onCreate={() => {
+                setData(createPersonalGuide);
+                guide("you");
+              }}
+            />
           )}
         </ScrollView>
         <View style={s.nav}>
           {[
             ["discover", "compass-outline", "Discover"],
             ["lists", "bookmark-outline", "My lists"],
-            ["friends", "people-outline", "Friends"],
+            ["add-activity", "add", "Add an activity"],
+            ["friends", "book-outline", "Guides"],
             ["you", "person-outline", "You"],
           ].map(([p, icon, label]) => {
+            if (p === "add-activity") return (
+              <Pressable
+                key={p}
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityHint="Choose an activity and log your visit"
+                onPress={() => setSheet("add-activity")}
+                style={({ pressed }) => [s.navItem, pressed && { opacity: 0.7 }]}
+              >
+                <View style={s.navAdd}>
+                  <I name="add" size={30} color={C.bg} />
+                </View>
+              </Pressable>
+            );
             const active =
               page === p ||
               (page === "detail" && p === "discover") ||
@@ -1626,13 +1539,24 @@ function Elsewhere() {
           })}
         </View>
         {!!toast && (
-          <View style={s.toast} accessibilityLiveRegion="polite">
-            <T style={{ color: C.greenInk, fontSize: 14 }}>{toast}</T>
+          <View style={[s.toast, s.between]} accessibilityLiveRegion="polite">
+            <T style={{ color: C.greenInk, fontSize: 14, flex: 1 }}>{toast}</T>
+            {toastSavedId && <Pressable accessibilityRole="button" onPress={() => {
+              clearFilters();
+              selectCity(byId(toastSavedId).city.replace(/^Near /, ""));
+              setMode("all");
+              setMap(false);
+              setListTab("saved");
+              nav("lists");
+              setToast("");
+            }} style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 6 }}>
+              <T style={{ color: C.greenInk, fontSize: 14, fontFamily: fonts.bold }}>View list</T>
+            </Pressable>}
           </View>
         )}
         <BottomSheet
           visible={sheet !== null}
-          onClose={() => setSheet(null)}
+          onClose={closeSheet}
           style={s.sheet}
           contentBottomPadding={32}
         >
@@ -1642,6 +1566,7 @@ function Elsewhere() {
                 {
                   filters: "Make it your kind of day",
                   log: "Your experience",
+                  "add-activity": "Add an activity",
                   "edit-visit": "Edit your visit",
                   niche: "How niche is it?",
                   share: "Share a good day",
@@ -1657,7 +1582,7 @@ function Elsewhere() {
             <Icon
               name="close"
               label="Close dialog"
-              onPress={() => setSheet(null)}
+              onPress={closeSheet}
             />
           </View>
           <ScrollView
@@ -1668,6 +1593,6 @@ function Elsewhere() {
           </ScrollView>
         </BottomSheet>
       </SafeAreaView>
-    </View>
+    </Animated.View>
   );
 }

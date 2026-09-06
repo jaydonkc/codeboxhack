@@ -1,0 +1,4 @@
+.DS_Store
+
+# Local presentation and video render intermediates
+outputs/**/.build/

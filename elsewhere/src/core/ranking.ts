@@ -11,6 +11,8 @@ export interface Preference {
   rank: number | null;
   note?: string;
   again?: boolean;
+  /** Local calendar day (YYYY-MM-DD), omitted for visits with no known date. */
+  visitedOn?: string;
 }
 
 export type RankingAnswer = "new" | "existing" | "tie" | "skip";

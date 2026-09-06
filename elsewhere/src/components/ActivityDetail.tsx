@@ -3,6 +3,9 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { type Experience, priceLabel } from "../data/catalog";
 import { C, fonts } from "../theme";
+import { getActivityPhotos } from "../data/activityPhotos";
+import ActivityPhotos from "./ActivityPhotos";
+import { formatVisitDate } from "../core/visitDate";
 
 export type ActivityDetailProps = {
   activity: Experience;
@@ -14,6 +17,7 @@ export type ActivityDetailProps = {
   awareness?: string;
   note?: string;
   again?: boolean;
+  visitedOn?: string;
   onBack: () => void;
   onShare: () => void;
   onMore: () => void;
@@ -154,6 +158,7 @@ export default function ActivityDetail({
   awareness,
   note,
   again,
+  visitedOn,
   onBack,
   onShare,
   onMore,
@@ -167,6 +172,7 @@ export default function ActivityDetail({
   onAwareness,
   onAddToGuide,
 }: ActivityDetailProps) {
+  const photos = getActivityPhotos(activity.id);
   const ranked = typeof personalScore === "number";
   const rankLabel = ranked
     ? "Rank again"
@@ -176,24 +182,8 @@ export default function ActivityDetail({
 
   return (
     <View style={d.page}>
-      <View style={[d.hero, !map && d.heroWithoutMap]}>
-        {map && (
-          <View style={d.mapButton}>
-            <View style={d.mapContent}>
-              {map}
-            </View>
-            <View pointerEvents="none" style={d.mapTint} />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`View ${activity.venue} on the map`}
-              onPress={onMap}
-              style={d.mapCaption}
-            >
-              <Ionicons name="expand-outline" color={C.ink} size={14} />
-              <Text style={d.mapCaptionText}>Explore the area</Text>
-            </Pressable>
-          </View>
-        )}
+      <View style={[d.hero, !photos.length && d.heroWithoutPhotos]}>
+        <ActivityPhotos key={activity.id} photos={photos} venue={activity.venue} />
         <View style={d.toolbar} pointerEvents="box-none">
           <RoundButton
             icon="arrow-back"
@@ -334,7 +324,7 @@ export default function ActivityDetail({
         </View>
       </View>
 
-      {(note?.trim() || again || onAddToGuide) && (
+      {(note?.trim() || again || visitedOn || onAddToGuide) && (
         <View style={d.section}>
           <View style={d.sectionHeading}>
             <Text style={d.sectionTitle} accessibilityRole="header">
@@ -349,11 +339,20 @@ export default function ActivityDetail({
               <Text style={d.link}>Edit</Text>
             </Pressable>
           </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit visit date"
+            onPress={onEditVisit} style={[d.inline, { minHeight: 44, marginTop: 6 }]}>
+            <Ionicons name="calendar-outline" color={C.green} size={18} />
+            <Text style={d.link}>
+              {visitedOn ? `Visited ${formatVisitDate(visitedOn)}` : "Add visit date"}
+            </Text>
+          </Pressable>
           {!!note?.trim() && <Text style={d.body}>{note}</Text>}
           {again && (
-            <View style={[d.inline, { marginTop: 8 }]}>
-              <Ionicons name="repeat-outline" color={C.green} size={17} />
-              <Text style={d.link}>You’d do this again</Text>
+            <View style={d.tags}>
+              <View style={[d.tag, d.inline]}>
+                <Ionicons name="repeat-outline" color={C.green} size={15} />
+                <Text style={d.tagText}>Repeatable</Text>
+              </View>
             </View>
           )}
           {onAddToGuide && (
@@ -374,6 +373,20 @@ export default function ActivityDetail({
         <Text style={d.sectionTitle} accessibilityRole="header">
           Plan your visit
         </Text>
+        {map && (
+          <View style={d.visitMap}>
+            {map}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`View ${activity.venue} on the map`}
+              onPress={onMap}
+              style={d.mapCaption}
+            >
+              <Ionicons name="expand-outline" color={C.ink} size={14} />
+              <Text style={d.mapCaptionText}>Explore the area</Text>
+            </Pressable>
+          </View>
+        )}
         <Information icon="time-outline" title="Hours & access">
           <Text style={d.informationText}>{activity.scheduleNote}</Text>
         </Information>
@@ -445,25 +458,9 @@ export default function ActivityDetail({
 
 const d = StyleSheet.create({
   page: { backgroundColor: C.bg, paddingBottom: 24 },
-  hero: { height: 170, backgroundColor: C.surface, overflow: "hidden" },
-  heroWithoutMap: { height: 64, backgroundColor: C.bg },
-  mapButton: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 0,
-  },
-  mapContent: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
-  mapTint: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "#18271f32",
-  },
+  hero: { backgroundColor: C.surface, overflow: "hidden" },
+  heroWithoutPhotos: { height: 64, backgroundColor: C.bg },
+  visitMap: { height: 166, borderRadius: 16, overflow: "hidden", marginBottom: 18 },
   mapCaption: {
     position: "absolute",
     bottom: 12,

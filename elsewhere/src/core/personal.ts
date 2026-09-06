@@ -1,4 +1,26 @@
-import { Preference, scorePreferences } from "./ranking";
+import { finishRanking, Preference, RankingSession, scorePreferences } from "./ranking";
+
+type VisitHistory = { preferences: Preference[]; saved: string[] };
+
+/** Completed comparisons are saved immediately; unresolved reactions require an explicit save. */
+export function saveRankedVisit<T extends VisitHistory>(
+  data: T,
+  session: RankingSession,
+  details: Pick<Preference, "note" | "again" | "visitedOn">,
+  { savePending = false }: { savePending?: boolean } = {},
+): T {
+  if (session.status !== "placed" && !(savePending && session.status === "pending"))
+    return data;
+  return {
+    ...data,
+    preferences: updateVisitDetails(
+      finishRanking(session, data.preferences),
+      session.id,
+      details,
+    ),
+    saved: data.saved.filter((id) => id !== session.id),
+  };
+}
 
 type GuideHistory = {
   guide: string[];
@@ -23,7 +45,7 @@ export function createPersonalGuide<T extends GuideHistory>(data: T): T {
 export function updateVisitDetails(
   preferences: readonly Preference[],
   id: string,
-  details: Pick<Preference, "note" | "again">,
+  details: Pick<Preference, "note" | "again" | "visitedOn">,
 ): Preference[] {
   return preferences.map((p) => p.id === id ? { ...p, ...details } : p);
 }
