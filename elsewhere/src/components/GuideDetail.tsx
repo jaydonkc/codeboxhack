@@ -61,7 +61,11 @@ export default function GuideDetail(props: Props) {
         <Text style={d.title}>{guide.title}</Text>
       </View>
       <View style={d.byline}>
-        <View style={d.avatar}><Ionicons name={personal ? "person-outline" : guide.author === "Emma" ? "person-outline" : "compass-outline"} size={17} color={C.green} /></View>
+        {personal ? (
+          <Image source={require("../../assets/profile/jaydon-beli.png")} accessibilityLabel="Your profile photo" style={d.avatar} resizeMode="cover" />
+        ) : (
+          <View style={d.avatar}><Ionicons name={guide.author === "Emma" ? "person-outline" : "compass-outline"} size={17} color={C.green} /></View>
+        )}
         <Text style={d.author}>{personal ? "By you" : `By ${guide.author}`}</Text>
         <Text style={d.meta}>·  {guide.experienceIds.length} experiences</Text>
       </View>

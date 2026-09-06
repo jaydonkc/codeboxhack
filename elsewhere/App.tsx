@@ -45,7 +45,7 @@ import ActivityDetail from "./src/components/ActivityDetail";
 import Onboarding from "./src/components/Onboarding";
 import { useStoredData } from "./src/components/useStoredData";
 import { useReducedMotion } from "./src/components/useReducedMotion";
-import { completeOnboarding, dismissFirstSavePrompt, toggleDraftInterest, toggleSavedExperience } from "./src/core/storage";
+import { completeOnboarding, dismissFirstSavePrompt, toggleSavedExperience } from "./src/core/storage";
 import ActivityPicker from "./src/components/ActivityPicker";
 import VisitDateField from "./src/components/VisitDateField";
 import GuideLibrary, { GuideCover, type GuideLibraryTab } from "./src/components/GuideLibrary";
@@ -192,6 +192,9 @@ function Elsewhere() {
   const reducedMotion = useReducedMotion();
   const appOpacity = useRef(new Animated.Value(1)).current;
   const [enteringDiscover, setEnteringDiscover] = useState(false);
+  const [launchStep, setLaunchStep] = useState<"onboarding" | "account" | "complete">("onboarding");
+  const [launchInterests, setLaunchInterests] = useState<string[] | null>(null);
+  const selectedLaunchInterests = launchInterests ?? (data.onboarding.step === "complete" ? data.interests : data.onboarding.draftInterests);
   const [page, setPage] = useState<Page>("discover"),
     [sheet, setSheet] = useState<Sheet>(null);
   const [selected, setSelected] = useState("sloma"),
@@ -812,9 +815,12 @@ function Elsewhere() {
   function profile() {
     return (
       <View style={[s.pad, s.stack]}>
-        <View style={[s.avatar, { width: 70, height: 70, borderRadius: 35 }]}>
-          <I name="person-outline" size={30} />
-        </View>
+        <Image
+          source={require("./assets/profile/jaydon-beli.png")}
+          accessibilityLabel="Your profile photo"
+          style={{ width: 70, height: 70, borderRadius: 35 }}
+          resizeMode="cover"
+        />
         <T style={s.serif}>Your kind of{"\n"}good day.</T>
         <View style={[s.row, { gap: 25 }]}>
           {[
@@ -1388,23 +1394,46 @@ function Elsewhere() {
         <ActivityIndicator color={C.green} />
       </View>
     );
-  if (data.onboarding.step === "interests")
+  if (launchStep === "onboarding")
     return (
       <View style={s.outer}>
         <StatusBar style="light" />
         <SafeAreaView style={s.app} edges={["top", "bottom"]}>
-          <Onboarding selected={data.onboarding.draftInterests}
-            onToggle={(interest) => setData((d) => toggleDraftInterest(d, interest))}
+          <Onboarding selected={selectedLaunchInterests}
+            onToggle={(interest) => setLaunchInterests(selectedLaunchInterests.includes(interest)
+              ? selectedLaunchInterests.filter((value) => value !== interest)
+              : [...selectedLaunchInterests, interest])}
             onComplete={(skip) => {
-              appOpacity.setValue(reducedMotion === false ? 0 : 1);
-              setEnteringDiscover(true);
-              setData((d) => completeOnboarding(d, skip));
-              clearFilters();
-              setMode("all");
-              setMap(false);
-              nav("discover");
+              setData((d) => completeOnboarding({
+                ...d,
+                onboarding: { ...d.onboarding, step: "interests", draftInterests: skip ? d.interests : selectedLaunchInterests },
+              }));
+              setLaunchStep("account");
             }}
             saveError={saveError} onRetrySave={retrySave} />
+        </SafeAreaView>
+      </View>
+    );
+  if (launchStep === "account")
+    return (
+      <View style={s.outer}>
+        <StatusBar style="light" />
+        <SafeAreaView style={[s.app, s.pad, s.stack, { justifyContent: "center" }]} edges={["top", "bottom"]}>
+          <T style={s.wordmark}>elsewhere</T>
+          <Image source={require("./assets/profile/jaydon-beli.png")} accessibilityLabel="Your profile photo"
+            style={{ width: 96, height: 96, borderRadius: 48, marginTop: 24 }} resizeMode="cover" />
+          <T accessibilityRole="header" style={s.serif}>Welcome back, Jaydon.</T>
+          <T style={s.muted}>Your demo profile, saved experiences, and personal rankings are ready.</T>
+          <Button onPress={() => {
+            appOpacity.setValue(reducedMotion === false ? 0 : 1);
+            setEnteringDiscover(true);
+            setLaunchStep("complete");
+            clearFilters();
+            setMode("all");
+            setMap(false);
+            nav("discover");
+          }}>Continue as Jaydon</Button>
+          <Button secondary onPress={() => setLaunchStep("onboarding")}>Back</Button>
         </SafeAreaView>
       </View>
     );

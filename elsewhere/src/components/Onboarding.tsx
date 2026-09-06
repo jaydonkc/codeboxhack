@@ -125,10 +125,10 @@ export default function Onboarding({ selected, onToggle, onComplete, saveError, 
             <Text style={{ color: C.green, fontFamily: fonts.bold }}>Try saving again</Text>
           </Pressable>
         </View>}
-        <Pressable accessibilityRole="button" accessibilityLabel="Show me experiences" accessibilityState={{ disabled: leaving !== null }}
+        <Pressable accessibilityRole="button" accessibilityLabel="Continue" accessibilityState={{ disabled: leaving !== null }}
           disabled={leaving !== null} onPress={() => setLeaving("continue")}
           style={({ pressed }) => [s.primary, pressed && { opacity: 0.85 }]}>
-          <Text style={s.primaryText}>Show me experiences</Text>
+          <Text style={s.primaryText}>Continue</Text>
           <Ionicons name="arrow-forward" size={18} color={C.greenInk} />
         </Pressable>
         <Pressable accessibilityRole="button" disabled={leaving !== null}
