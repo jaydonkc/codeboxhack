@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "elsewhere",
+    "name": "Elsewhere",
     "slug": "elsewhere",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#18271f",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -23,6 +23,9 @@
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "scheme": "elsewhere",
+    "description": "Find your kind of good day in San Luis Obispo.",
+    "backgroundColor": "#18271f"
   }
 }
