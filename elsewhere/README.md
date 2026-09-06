@@ -25,8 +25,11 @@ The proposed ranking and nicheness methods are our product design, not Beli's pr
 - Native uses `react-native-maps` (Apple Maps on iOS); web uses Leaflet and OpenStreetMap tiles. Map tiles require internet. Points have source provenance and precision notes: some identify parks or peaks rather than entrances. Distances are straight-line from Downtown SLO until you use My location; then nearby filtering and distances use the returned device coordinates. Location denial, failure, and timeout leave the map in place and show an error.
 - Open an activity's official source or search its venue for access/directions.
 - Save Want to Try entries, log a reaction, compare experiences, tie or skip, and view the resulting personal scores in Been. Load sample history from About Elsewhere to demonstrate comparisons immediately; this is allowed only with an empty history.
+- Edit visit notes and the revisit choice directly from Your visit or the activity menu, without changing rankings. Favorites shows only experiences with a liked reaction.
 - Read editorial nicheness estimates for all 11 activities. Each score links to its research and explains how far the activity sits outside SLO's usual visitor circuit. These are labeled estimates, not measured community awareness; review counts are not used. The optional familiarity answer is stored separately and does not silently change the research estimate. See [nicheness research](docs/nicheness-research.md).
-- Build a city guide from completed rankings, reorder it, add separate guide notes, preview, and copy its text and official links. Private visit notes are omitted.
+- Build a city guide from fully ranked liked experiences, reorder it, add separate guide notes, preview, and copy its text and official links. Reopening an existing guide preserves its selection and order, including an intentionally emptied guide. Private visit notes are omitted; example guide notes appear under each pick.
+- When a search, area, or filter hides all entries in a personal list, clear filters in place to recover the list. Activity Map actions reset conflicting discovery modes and city selection and center on the activity.
+- Turn off Example social data in About Elsewhere to hide sample scores, friend guides, and activity across the app. Your personal guide remains available.
 - Choose a search city from the header or menu. Only SLO has catalog entries; other cities show an empty state. My location searches the existing catalog nearby and does not fetch new venues.
 - Open an activity detail page modeled on the Beli restaurant page inspected through iPhone Mirroring: map header, venue title, rank/save actions, compact website/directions links, separate personal/friends/community score circles, nicheness and practical details. No unrelated or fabricated venue photos are used.
 - Open and dismiss menus with independently animated backdrop opacity and measured sheet movement, including reduced-motion support and retained closing content.
@@ -46,6 +49,8 @@ npx expo export --platform web --platform ios --platform android
 ```
 
 Browser flow checks cover real tiles and markers, map-area filtering, detail navigation, comparison ranking, and local persistence. Native bundle export verifies bundling; it does not replace testing on a physical phone.
+
+Regression scenarios for guide preservation, visit editing, and discovery are recorded in [flow regressions](docs/flow-regressions.md).
 
 ## Next implementation boundaries
 
