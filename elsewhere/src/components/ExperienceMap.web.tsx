@@ -1,195 +1,85 @@
+/// <reference types="google.maps" />
 import React, { useEffect, useRef, useState } from "react";
-import type { Map as LeafletMap, LayerGroup } from "leaflet";
 import type { MapProps } from "./ExperienceMap";
 import type { MapBounds } from "../data/catalog";
-import "leaflet/dist/leaflet.css";
 import { useDeviceLocation } from "./useDeviceLocation";
-const buttonStyle: React.CSSProperties = {
-  border: 0,
-  borderRadius: 20,
-  padding: "12px 16px",
-  background: "#c5dfa8",
-  color: "#294425",
-  fontWeight: 700,
-  fontSize: 14,
-  cursor: "pointer",
-  boxShadow: "0 2px 12px #0003",
-};
-export default function ExperienceMap({
-  items,
-  selected,
-  onSelect,
-  onSearchArea,
-  onResetArea,
-  origin,
-  onUserLocation,
-  height = 390,
-  compact = false,
-}: MapProps) {
-  const { locate, locating, locationError } = useDeviceLocation();
-  const host = useRef<HTMLDivElement>(null),
-    map = useRef<LeafletMap | null>(null),
-    markers = useRef<LayerGroup | null>(null),
-    callback = useRef(onSelect),
-    [ready, setReady] = useState(false),
-    [bounds, setBounds] = useState<MapBounds | null>(null),
-    [tileError, setTileError] = useState(false);
-  callback.current = onSelect;
+import LocalExperienceMap from "./LocalExperienceMap.web";
+
+let loading: Promise<void> | undefined;
+function loadGoogleMaps(key: string): Promise<void> {
+  if (typeof google !== "undefined" && typeof google.maps?.importLibrary === "function") return Promise.resolve();
+  if (loading) return loading;
+  loading = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    const win = window as unknown as Record<string, unknown>;
+    const timer = setTimeout(() => { loading = undefined; script.remove(); reject(new Error("Google Maps took too long to load. Check your connection and reload.")); }, 15000);
+    win.elsewhereMapsReady = () => { clearTimeout(timer); resolve(); };
+    win.gm_authFailure = () => { clearTimeout(timer); loading = undefined; reject(new Error("Google Maps could not authenticate. Check the browser API key and allowed website.")); };
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&v=weekly&callback=elsewhereMapsReady`;
+    script.async = true;
+    script.onerror = () => { clearTimeout(timer); loading = undefined; script.remove(); reject(new Error("Couldn’t load Google Maps. Check your connection and reload.")); };
+    document.head.append(script);
+  });
+  return loading;
+}
+const buttonStyle: React.CSSProperties = { border: 0, borderRadius: 20, padding: "12px 16px", background: "#c5dfa8", color: "#294425", fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 12px #0003" };
+export default function ExperienceMap(props: MapProps) {
+  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY ? <GoogleExperienceMap {...props} /> : <LocalExperienceMap {...props} />;
+}
+function GoogleExperienceMap({ items, selected, onSelect, onSearchArea, onResetArea, origin, userLocation, onUserLocation, height = 390, compact = false }: MapProps) {
+  const host = useRef<HTMLDivElement>(null);
+  const map = useRef<google.maps.Map | null>(null);
+  const pins = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState("");
+  const [bounds, setBounds] = useState<MapBounds>();
+  const { locate, locating, locationError, position } = useDeviceLocation();
+  const devicePoint = position ?? userLocation;
+  const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_WEB_KEY ?? "";
+  const point = compact && items[0]?.lat != null && items[0]?.lng != null ? { lat: items[0].lat, lng: items[0].lng } : origin;
+  const firstPoint = useRef(point);
   useEffect(() => {
-    let dead = false;
-    import("leaflet").then((L) => {
-      if (dead || !host.current) return;
-      const point = compact ? items[0] : undefined;
-      const m = L.map(host.current, {
-        scrollWheelZoom: false,
-        zoomControl: !compact,
-        dragging: !compact,
-        doubleClickZoom: !compact,
-        touchZoom: !compact,
-        keyboard: !compact,
-      }).setView(
-        point?.lat != null && point?.lng != null
-          ? [point.lat, point.lng]
-          : origin ? [origin.lat, origin.lng] : [35.298, -120.69],
-        compact ? 15 : 12,
-      );
+    if (!key) return;
+    let disposed = false;
+    let idle: google.maps.MapsEventListener | undefined;
+    loadGoogleMaps(key).then(async () => {
+      const { Map } = await google.maps.importLibrary("maps") as google.maps.MapsLibrary;
+      await google.maps.importLibrary("marker");
+      if (disposed || !host.current) return;
+      const m = new Map(host.current, { center: firstPoint.current ?? { lat: 20, lng: 0 }, zoom: firstPoint.current ? compact ? 15 : 12 : 2, mapId: process.env.EXPO_PUBLIC_GOOGLE_MAP_ID || "DEMO_MAP_ID", disableDefaultUI: compact, gestureHandling: compact ? "none" : "cooperative", keyboardShortcuts: !compact, mapTypeControl: false, streetViewControl: false });
       map.current = m;
-      markers.current = L.layerGroup().addTo(m);
-      const tiles = L.tileLayer(
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        {
-          attribution:
-            '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-          maxZoom: 19,
-        },
-      ).addTo(m);
-      tiles.on("tileerror", () => setTileError(true));
-      tiles.on("load", () => setTileError(false));
-      m.on("moveend", () => {
-        const b = m.getBounds();
-        setBounds({
-          north: b.getNorth(),
-          south: b.getSouth(),
-          east: b.getEast(),
-          west: b.getWest(),
-        });
-      });
+      idle = m.addListener("idle", () => { const b = m.getBounds(); if (b) setBounds({ north: b.getNorthEast().lat(), east: b.getNorthEast().lng(), south: b.getSouthWest().lat(), west: b.getSouthWest().lng() }); });
       setReady(true);
-    });
-    return () => {
-      dead = true;
-      map.current?.remove();
-      map.current = null;
-      markers.current = null;
-    };
-  }, []);
+    }).catch(e => { if (!disposed) setError(e.message); });
+    return () => { disposed = true; idle?.remove(); pins.current.forEach(p => p.map = null); map.current = null; };
+  }, [key, compact]);
   useEffect(() => {
-    if (!ready || !markers.current) return;
-    let dead = false;
-    import("leaflet").then((L) => {
-      if (dead || !markers.current) return;
-      markers.current.clearLayers();
-      items
-        .filter((x) => x.lat !== null && x.lng !== null)
-        .forEach((x) => {
-          const marker = L.circleMarker([x.lat!, x.lng!], {
-            radius: x.id === selected ? 12 : 9,
-            fillColor: x.id === selected ? "#d66940" : "#345c36",
-            color: "#fff9e9",
-            weight: 3,
-            fillOpacity: 1,
-          }).addTo(markers.current!);
-          marker.bindTooltip(x.name);
-          marker.on("click", () => callback.current(x.id));
-          const el = marker.getElement();
-          if (el) {
-            el.setAttribute("tabindex", "0");
-            el.setAttribute("role", "button");
-            el.setAttribute("aria-label", x.name);
-            el.addEventListener("keydown", (ev) => {
-              if (["Enter", " "].includes((ev as KeyboardEvent).key)) {
-                ev.preventDefault();
-                callback.current(x.id);
-              }
-            });
-          }
-        });
+    if (!ready || !map.current || !point) return;
+    map.current.setCenter(point);
+    map.current.setZoom(compact ? 15 : 12);
+  }, [ready, point?.lat, point?.lng, compact]);
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    pins.current.forEach(p => p.map = null);
+    pins.current = items.filter(x => x.lat != null && x.lng != null).map(x => {
+      const pin = new google.maps.marker.PinElement({ background: x.id === selected ? "#d66940" : "#345c36", borderColor: "#fff9e9", glyphColor: "#fff9e9" });
+      const marker = new google.maps.marker.AdvancedMarkerElement({ map: map.current, position: { lat: x.lat!, lng: x.lng! }, title: x.name, content: pin, gmpClickable: true });
+      marker.addListener("click", () => onSelect(x.id));
+      return marker;
     });
-    return () => {
-      dead = true;
-    };
-  }, [ready, items.map((x) => x.id).join(","), selected]);
-  return (
-    <div
-      style={{
-        position: "relative",
-        height,
-        width: "100%",
-        borderRadius: compact ? 0 : 20,
-        overflow: "hidden",
-        background: "#213f47",
-      }}
-    >
-      <div
-        ref={host}
-        aria-label="Interactive experience map"
-        style={{ height: "100%", width: "100%" }}
-      />
-      {!compact && onSearchArea && bounds && (
-        <button
-          style={{
-            ...buttonStyle,
-            position: "absolute",
-            top: 12,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 500,
-            whiteSpace: "nowrap",
-          }}
-          onClick={() => onSearchArea(bounds)}
-        >
-          Search this area
-        </button>
-      )}
-      {!compact && (
-        <button
-          aria-label="Reset map to my location"
-          disabled={locating}
-          style={{
-            ...buttonStyle,
-            position: "absolute",
-            bottom: 30,
-            right: 12,
-            zIndex: 500,
-          }}
-          onClick={() => locate((point) => {
-            map.current?.setView([point.lat, point.lng], 12);
-            onResetArea?.();
-            onUserLocation?.(point);
-          })}
-        >
-          {locating ? "Locating…" : "My location"}
-        </button>
-      )}
-      {!!locationError && <div role="alert" style={{ position: "absolute", bottom: 80, left: 12, right: 12, zIndex: 500, background: "#22382b", color: "white", padding: 12 }}>{locationError}</div>}
-      {tileError && (
-        <div
-          role="status"
-          style={{
-            position: "absolute",
-            bottom: 70,
-            left: 12,
-            right: 12,
-            zIndex: 500,
-            background: "#22382b",
-            color: "#fff",
-            padding: 12,
-          }}
-        >
-          Map tiles couldn’t load. Check your connection; the list is still
-          available.
-        </div>
-      )}
-    </div>
-  );
+    return () => { pins.current.forEach(p => p.map = null); };
+  }, [ready, items, selected, onSelect]);
+  useEffect(() => {
+    if (!ready || !map.current || compact || !devicePoint) return;
+    const pin = new google.maps.marker.PinElement({ background: "#4285F4", borderColor: "white", glyphColor: "white" });
+    const marker = new google.maps.marker.AdvancedMarkerElement({ map: map.current, position: devicePoint, title: "Your last requested location", content: pin });
+    return () => { marker.map = null; };
+  }, [ready, compact, devicePoint?.lat, devicePoint?.lng]);
+  return <div style={{ position: "relative", height, width: "100%", borderRadius: compact ? 0 : 20, overflow: "hidden", background: "#213f47" }}>
+    <div ref={host} aria-label="Google Maps experience map" style={{ height: "100%", width: "100%" }} />
+    {(!key || error) && <div role="status" style={{ position: "absolute", top: 25, left: 18, right: 18, color: "white" }}>{error || "Map is not connected yet. You can still browse the list."}</div>}
+    {!compact && ready && onSearchArea && bounds && <button style={{ ...buttonStyle, position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap" }} onClick={() => onSearchArea(bounds)}>Search this area</button>}
+    {!compact && <button aria-label="Reset map to my location" disabled={locating} style={{ ...buttonStyle, position: "absolute", bottom: 40, left: 12 }} onClick={() => locate(p => { map.current?.setCenter(p); map.current?.setZoom(12); onResetArea?.(); onUserLocation?.(p); })}>{locating ? "Locating…" : "My location"}</button>}
+    {!!locationError && <div role="alert" style={{ position: "absolute", bottom: 95, left: 12, right: 12, background: "#22382b", color: "white", padding: 12 }}>{locationError}</div>}
+  </div>;
 }

@@ -8,9 +8,11 @@
     "@expo/metro-runtime": "~57.0.15",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/slider": "^5.2.0",
     "@types/leaflet": "^1.9.22",
     "expo": "~57.0.20",
     "expo-clipboard": "~57.0.1",
+    "expo-constants": "~57.0.17",
     "expo-font": "~57.0.3",
     "expo-linking": "~57.0.9",
     "expo-location": "~57.0.16",
@@ -24,6 +26,7 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@types/google.maps": "^3.66.2",
     "@types/node": "^26.4.1",
     "@types/react": "~19.2.2",
     "tsx": "^4.23.13",
@@ -35,9 +38,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/core/*.test.ts",
+    "test": "tsx --test src/core/*.test.ts server/*.test.ts",
     "export:web": "expo export --platform web",
-    "export:native": "expo export --platform ios --platform android"
+    "export:native": "expo export --platform ios --platform android",
+    "server": "node --env-file-if-exists=.env.server.local --import tsx server/index.ts"
   },
   "private": true
 }

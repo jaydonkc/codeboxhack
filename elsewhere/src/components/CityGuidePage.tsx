@@ -15,6 +15,8 @@ export default function CityGuidePage({ guide, owner, savedIds, onBack, onShare,
   onSave: (id: string) => void;
 }) {
   const [map, setMap] = useState(false);
+  const firstPlace = guide?.entries.find(({ experience }) => experience.lat !== null && experience.lng !== null)?.experience;
+  const origin = firstPlace ? { lat: firstPlace.lat!, lng: firstPlace.lng! } : undefined;
   return <View style={g.page}>
     <View style={g.toolbar}>
       <Pressable accessibilityRole="button" accessibilityLabel="Back from city guide" onPress={onBack} style={g.icon}><Ionicons name="arrow-back" size={23} color={C.ink}/></Pressable>
@@ -29,7 +31,7 @@ export default function CityGuidePage({ guide, owner, savedIds, onBack, onShare,
         <Ionicons name={map ? "list-outline" : "map-outline"} size={17} color={C.green}/><Text style={g.mapLabel}>{map ? "List" : "Map"}</Text>
       </Pressable>
     </View>
-    {map && guide && <View style={g.map}><ExperienceMap items={guide.entries.map(entry => entry.experience)} selected={null} onSelect={onExperience}/></View>}
+    {map && guide && <View style={g.map}><ExperienceMap items={guide.entries.map(entry => entry.experience)} origin={origin} selected={null} onSelect={onExperience}/></View>}
     {guide?.entries.map(({ experience, position, score }) => <View key={experience.id} style={g.row}>
       <Text style={g.position}>{position ?? "—"}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={`Open ${experience.name}`} onPress={() => onExperience(experience.id)} style={g.activity}>

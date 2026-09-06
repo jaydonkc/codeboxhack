@@ -18,10 +18,12 @@ export type LeaderboardPageProps = {
 
 const STORAGE_KEY = "elsewhere-friends-v1";
 type Dialog = "members" | "city" | FriendId | null;
+// Keep the selected view when a member's city guide temporarily replaces this screen.
+const lastView: { audience: "All Members" | "Friends"; city: string | null } = { audience: "All Members", city: null };
 
 export default function LeaderboardPage({ guides, showExamples, onGuide, onYou }: LeaderboardPageProps) {
-  const [audience, setAudience] = useState<"All Members" | "Friends">("All Members");
-  const [city, setCity] = useState<string | null>(null);
+  const [audience, setAudience] = useState(lastView.audience);
+  const [city, setCity] = useState(lastView.city);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [followed, setFollowed] = useState<FriendId[]>(friends.map(friend => friend.id));
   const [loaded, setLoaded] = useState(false);
@@ -94,9 +96,9 @@ export default function LeaderboardPage({ guides, showExamples, onGuide, onYou }
 
     <Sheet visible={!!dialog} onClose={() => setDialog(null)} title={dialog === "members" ? "Show members" : dialog === "city" ? "Choose city" : "Profile"}>
       <ScrollView contentContainerStyle={l.sheet}>
-        {dialog === "members" && (["All Members", "Friends"] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: audience === value }} onPress={() => { setAudience(value); setDialog(null); }} style={l.option}>
+        {dialog === "members" && (["All Members", "Friends"] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: audience === value }} onPress={() => { lastView.audience = value; setAudience(value); setDialog(null); }} style={l.option}>
           <Text style={l.optionText}>{value}</Text>{audience === value && <Ionicons name="checkmark" size={22} color={C.green}/>}</Pressable>)}
-        {dialog === "city" && [[null, "All cities"], ...cities].map(([key, label]) => <Pressable key={key ?? "all"} accessibilityRole="button" accessibilityState={{ selected: city === key }} onPress={() => { setCity(key); setDialog(null); }} style={l.option}>
+        {dialog === "city" && [[null, "All cities"], ...cities].map(([key, label]) => <Pressable key={key ?? "all"} accessibilityRole="button" accessibilityState={{ selected: city === key }} onPress={() => { lastView.city = key; setCity(key); setDialog(null); }} style={l.option}>
           <Text style={l.optionText}>{label}</Text>{city === key && <Ionicons name="checkmark" size={22} color={C.green}/>}</Pressable>)}
         {selectedMember && <>
           <View style={l.profileHeader}><View style={[l.largeAvatar, { backgroundColor: selectedMember.color }]}><Text style={l.largeInitials}>{selectedMember.initials}</Text></View>

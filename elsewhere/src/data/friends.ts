@@ -1,5 +1,5 @@
 // Fictional social fixtures. Venue information comes from the real SLO catalog.
-export type FriendId = "emma" | "maya" | "alex" | "noah";
+export type FriendId = "emma" | "maya" | "alex" | "noah" | "jacob" | "usman";
 
 export type FriendProfile = Readonly<{
   id: FriendId;
@@ -35,7 +35,7 @@ export type FriendEvent = EventBase & (
       kind: "guide";
       owner: "emma";
       title: string;
-      experienceIds: readonly string[];
+      city: string;
     }>
   | Readonly<{
       kind: "request";
@@ -46,6 +46,8 @@ export type FriendEvent = EventBase & (
 );
 
 export const friends: readonly FriendProfile[] = [
+  { id: "jacob", name: "Jacob", handle: "jacob", initials: "J", color: "#c9d9b3", bio: "Trails, good views, and finding the next weekend plan.", city: "San Luis Obispo", rankedCount: 7, savedCount: 4 },
+  { id: "usman", name: "Usman", handle: "usman", initials: "U", color: "#c8c0e2", bio: "Always down to try something new with friends.", city: "San Luis Obispo", rankedCount: 6, savedCount: 5 },
   {
     id: "emma",
     name: "Emma Chen",
@@ -99,6 +101,10 @@ export function friendById(id: FriendId): FriendProfile {
 }
 
 export const friendFeed: readonly FriendEvent[] = [
+  { id: "jacob-bishop", kind: "ranked", authorId: "jacob", experienceId: "bishop-peak", score: 9.4, timeLabel: "20 minutes ago", note: "Worth the climb. Next time we’re going for sunset.", likes: 8, comments: [{id: "usman-bishop", authorId: "usman", text: "I’m in for the next one."}] },
+  { id: "usman-pottery", kind: "ranked", authorId: "usman", experienceId: "anam-cre-pottery", score: 9.1, timeLabel: "1 hour ago", note: "First time trying the wheel. Would definitely do another class.", likes: 6, comments: [{id: "jacob-pottery", authorId: "jacob", text: "Adding it to my list."}] },
+  { id: "jacob-garden", kind: "bookmarked", authorId: "jacob", experienceId: "leaning-pine-arboretum", timeLabel: "3 hours ago", note: "Saving this for a quiet afternoon between classes.", likes: 3, comments: [] },
+  { id: "usman-market", kind: "ranked", authorId: "usman", experienceId: "downtown-farmers-market", score: 8.7, timeLabel: "Yesterday", note: "An easy Thursday plan with everyone.", likes: 9, comments: [] },
   {
     id: "emma-ranked-sloma",
     kind: "ranked",
@@ -158,10 +164,10 @@ export const friendFeed: readonly FriendEvent[] = [
     kind: "guide",
     authorId: "emma",
     owner: "emma",
-    title: "A slow weekend in SLO",
-    experienceIds: ["sloma", "leaning-pine-arboretum", "downtown-farmers-market", "anam-cre-pottery"],
+    title: "Emma’s San Luis Obispo",
+    city: "San Luis Obispo",
     timeLabel: "2 days ago",
-    note: "I put my favorite art, garden, and creative stops in one place. Pick a couple and leave room to wander.",
+    note: "My San Luis Obispo rankings so far. Pick a couple and leave room to wander.",
     likes: 16,
     comments: [
       { id: "guide-noah", authorId: "noah", text: "Saving this for my friend’s visit." },

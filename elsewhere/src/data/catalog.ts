@@ -10,7 +10,7 @@ export type Experience = {
   city: string;
   priceUSD: number | null;
   priceNote: string;
-  durationMinutesSuggested: number;
+  durationMinutesSuggested: number | null;
   durationNote: string;
   scheduleNote: string;
   sourceUrl: string;
@@ -20,12 +20,15 @@ export type Experience = {
   lng: number | null;
   locationNote: string;
   coordinateSource?: string;
+  provider?: "google";
+  attributions?: { name: string; url?: string }[];
 };
 export const catalog: Experience[] = source.experiences.map((x) => {
   const point = geocodes.points.find((p) => p.id === x.id);
   return point
     ? {
         ...x,
+        name: x.venue,
         lat: point.lat,
         lng: point.lng,
         coordinateSource: point.sourceUrl,
@@ -78,7 +81,7 @@ export const icons: Record<string, string> = {
 };
 export type SearchOrigin = { lat: number; lng: number };
 export function distance(x: Experience, origin?: SearchOrigin): number | null {
-  if (x.lat === null || x.lng === null) return null;
+  if (x.lat === null || x.lng === null || (!origin && (x.provider === "google" || x.id.startsWith("user:")))) return null;
   // Use an explicit location when available; otherwise the SLO catalog origin.
   const rad = Math.PI / 180,
     lat = origin?.lat ?? 35.28,
@@ -113,10 +116,9 @@ export function matches(x: Experience, f: Filters, origin?: SearchOrigin): boole
         x.lng !== null &&
         x.lat >= f.bounds.south &&
         x.lat <= f.bounds.north &&
-        x.lng >= f.bounds.west &&
-        x.lng <= f.bounds.east)) &&
+        (f.bounds.west <= f.bounds.east ? x.lng >= f.bounds.west && x.lng <= f.bounds.east : x.lng >= f.bounds.west || x.lng <= f.bounds.east))) &&
     (f.radius === null || (dist !== null && dist <= f.radius)) &&
-    (f.duration === null || x.durationMinutesSuggested <= f.duration) &&
+    (f.duration === null || (x.durationMinutesSuggested !== null && x.durationMinutesSuggested <= f.duration)) &&
     (!f.vibes.length || x.vibes.some((v) => f.vibes.includes(v))) &&
     `${x.name} ${x.venue} ${x.activityType} ${x.vibes.join(" ")}`
       .toLocaleLowerCase()

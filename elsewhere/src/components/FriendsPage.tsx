@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +20,8 @@ import {
   type FriendEvent,
 } from "../data/friends";
 import { C, fonts } from "../theme";
+import { friendCityGuides } from "../data/friendGuides";
+import { cityGuideText, cityKey } from "../core/guides";
 import Sheet from "./Sheet";
 
 export type FriendsPageProps = {
@@ -27,8 +30,9 @@ export type FriendsPageProps = {
   onExperience: (id: string) => void;
   onSave: (id: string) => void;
   onRank: (id: string) => void;
-  onGuide: (owner: "emma" | "you") => void;
+  onGuide: (owner: FriendId | "you", city?: string) => void;
   onNearby: () => void;
+  onDiscover: () => void;
 };
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -47,6 +51,7 @@ type OwnRequest = {
 type FeedPost = FriendEvent | OwnRequest;
 type LocalComment = { id: string; text: string };
 type SocialState = {
+  placeholderVersion?: number;
   likes: string[];
   followed: FriendId[];
   comments: Record<string, LocalComment[]>;
@@ -55,15 +60,15 @@ type SocialState = {
 type Dialog =
   | { kind: "friends" }
   | { kind: "profile"; id: FriendId }
-  | { kind: "guides" }
   | { kind: "comments"; post: FeedPost }
   | { kind: "share"; post: FeedPost }
   | { kind: "compose" }
   | null;
 const STORAGE_KEY = "elsewhere-friends-v1";
 const emptyState: SocialState = {
+  placeholderVersion: 1,
   likes: [],
-  followed: ["emma", "maya", "alex", "noah"],
+  followed: ["emma", "maya", "alex", "noah", "jacob", "usman"],
   comments: {},
   requests: [],
 };
@@ -79,7 +84,14 @@ function Avatar({
   large?: boolean;
 }) {
   const person = id === "you" ? you : friendById(id);
-  const content = (
+  const content = id === "you" ? (
+    <Image
+      source={require("../../assets/profile/jaydon-beli.png")}
+      accessibilityLabel="Your profile photo"
+      style={{ width: "100%", height: "100%", borderRadius: large ? 33 : 100 }}
+      resizeMode="cover"
+    />
+  ) : (
     <Text style={[f.avatarText, large && f.avatarTextLarge]}>
       {person.initials}
     </Text>
@@ -177,7 +189,8 @@ function shareText(post: FeedPost) {
     return `${activity.name}\n${activity.venue} · ${activity.city}\n${post.note}\n${activity.sourceUrl}`;
   }
   if (post.kind === "guide") {
-    return `${post.title}\n${post.note}\n\n${post.experienceIds.map((id, i) => `${i + 1}. ${byId(id).name}\n${byId(id).sourceUrl}`).join("\n\n")}`;
+    const guide = friendCityGuides(post.owner).find(guide => guide.key === cityKey(post.city));
+    return guide ? cityGuideText(guide, friendById(post.owner).name) : post.title;
   }
   return `${post.title}\n${post.city}\n${post.note}`;
 }
@@ -190,10 +203,10 @@ export default function FriendsPage({
   onRank,
   onGuide,
   onNearby,
+  onDiscover,
 }: FriendsPageProps) {
   const [social, setSocial] = useState<SocialState>(emptyState);
   const [loaded, setLoaded] = useState(false);
-  const [query, setQuery] = useState("");
   const [memberQuery, setMemberQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [comment, setComment] = useState("");
@@ -208,7 +221,7 @@ export default function FriendsPage({
       .then((raw) => {
         if (!alive || !raw) return;
         const parsed: unknown = JSON.parse(raw);
-        if (validStoredState(parsed)) setSocial(parsed);
+        if (validStoredState(parsed)) setSocial(parsed.placeholderVersion === 1 ? parsed : { ...parsed, placeholderVersion: 1, followed: [...new Set<FriendId>([...parsed.followed, "jacob", "usman"])] });
       })
       .catch(() => {
         if (alive) setNotice("Some friend activity could not be loaded.");
@@ -241,31 +254,7 @@ export default function FriendsPage({
     ],
     [social.requests, social.followed, showExamples],
   );
-  const cleanQuery = query.trim().toLowerCase();
-  const matchingPeople =
-    showExamples && cleanQuery
-      ? friends.filter((person) =>
-          `${person.name} ${person.handle}`.toLowerCase().includes(cleanQuery),
-        )
-      : [];
-  const matchingActivities = cleanQuery
-    ? catalog.filter((activity) =>
-        `${activity.name} ${activity.venue} ${activity.activityType}`
-          .toLowerCase()
-          .includes(cleanQuery),
-      )
-    : [];
-  const visiblePosts = allPosts.filter((post) => {
-    if (!cleanQuery) return true;
-    const person = post.authorId === "you" ? you : friendById(post.authorId);
-    const subject =
-      post.kind === "ranked" || post.kind === "bookmarked"
-        ? byId(post.experienceId).name
-        : post.title;
-    return `${person.name} ${subject} ${post.note}`
-      .toLowerCase()
-      .includes(cleanQuery);
-  });
+  const visiblePosts = allPosts;
   const open = (next: NonNullable<Dialog>) => {
     setComment("");
     setCopied(false);
@@ -292,9 +281,9 @@ export default function FriendsPage({
     setDialog(null);
     onExperience(id);
   };
-  const selectGuide = (owner: "emma" | "you") => {
+  const selectGuide = (owner: FriendId | "you", city?: string) => {
     setDialog(null);
-    onGuide(owner);
+    onGuide(owner, city);
   };
   const postTitle = (post: FeedPost) =>
     post.kind === "ranked" || post.kind === "bookmarked"
@@ -303,12 +292,13 @@ export default function FriendsPage({
   const openPost = (post: FeedPost) => {
     if (post.kind === "ranked" || post.kind === "bookmarked")
       selectActivity(post.experienceId);
-    else if (post.kind === "guide") selectGuide(post.owner);
+    else if (post.kind === "guide") selectGuide(post.owner, post.city);
     else open({ kind: "comments", post });
   };
 
   const renderPost = (post: FeedPost) => {
     const person = post.authorId === "you" ? you : friendById(post.authorId);
+    const guide = post.kind === "guide" ? friendCityGuides(post.owner).find(guide => guide.key === cityKey(post.city)) : null;
     const isActivity = post.kind === "ranked" || post.kind === "bookmarked";
     const activity = isActivity ? byId(post.experienceId) : null;
     const liked = social.likes.includes(post.id);
@@ -348,7 +338,7 @@ export default function FriendsPage({
               {activity
                 ? `${activity.activityType} · ${activity.city}`
                 : post.kind === "guide"
-                  ? `${post.experienceIds.length} experiences · San Luis Obispo`
+                  ? `${guide?.entries.length ?? 0} experiences · ${post.city}`
                   : post.kind === "request"
                     ? post.city
                     : ""}
@@ -373,7 +363,7 @@ export default function FriendsPage({
           {post.kind === "guide" && (
             <Pressable
               accessibilityRole="button"
-              onPress={() => selectGuide(post.owner)}
+              onPress={() => selectGuide(post.owner, post.city)}
               style={f.inlineLink}
             >
               <Ionicons name="map-outline" color={C.green} size={18} />
@@ -483,11 +473,9 @@ export default function FriendsPage({
 
   const dialogTitle =
     dialog?.kind === "friends"
-      ? "Find friends"
+      ? "Search members"
       : dialog?.kind === "profile"
         ? "Member profile"
-        : dialog?.kind === "guides"
-          ? "City guides"
           : dialog?.kind === "comments"
             ? "Comments"
             : dialog?.kind === "share"
@@ -497,54 +485,21 @@ export default function FriendsPage({
     <View style={f.root}>
       <View style={f.fixedTools}>
         <View style={f.search}>
-          <Ionicons name="search" size={20} color={C.muted} />
-          <TextInput
-            accessibilityLabel="Search activities and members"
-            placeholder="Search an activity, member, etc..."
-            placeholderTextColor={C.muted}
-            style={f.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
-          {!!query && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Clear search"
-              onPress={() => setQuery("")}
-              style={f.clear}
-            >
-              <Ionicons name="close-circle" size={19} color={C.muted} />
-            </Pressable>
-          )}
+          <Pressable accessibilityRole="button" accessibilityLabel="Search experiences"
+            onPress={onDiscover} style={{ flex: 1, flexDirection: "row", gap: 9, alignItems: "center", height: 43 }}>
+            <Ionicons name="search" size={19} color={C.muted} />
+            <Text style={{ color: C.muted, fontFamily: fonts.body, fontSize: 14 }}>Search experiences, places…</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Search members"
+            onPress={() => { setMemberQuery(""); open({ kind: "friends" }); }} style={f.clear}>
+            <Ionicons name="people-outline" size={21} color={C.green}/>
+          </Pressable>
         </View>
-        <View style={f.shortcuts}>
-          {(
-            [
-              [
-                "person-add-outline",
-                "Find friends",
-                () => {
-                  setMemberQuery("");
-                  open({ kind: "friends" });
-                },
-              ],
-              ["map-outline", "City guides", () => open({ kind: "guides" })],
-              ["navigate-outline", "Nearby", onNearby],
-            ] as const
-          ).map(([icon, label, action]) => (
-            <Pressable
-              key={label}
-              accessibilityRole="button"
-              onPress={action}
-              style={({ pressed }) => [f.shortcut, pressed && f.pressed]}
-            >
-              <Ionicons name={icon} size={16} color={C.green} />
-              <Text style={f.shortcutText}>{label}</Text>
-            </Pressable>
-          ))}
-        </View>
+        <Pressable accessibilityRole="button" onPress={onNearby}
+          style={[f.shortcut, { flex: 0, alignSelf: "flex-start", paddingHorizontal: 14, marginTop: 12 }]}>
+          <Ionicons name="navigate-outline" size={16} color={C.green}/>
+          <Text style={f.shortcutText}>Recs Nearby</Text>
+        </Pressable>
       </View>
       <ScrollView
         style={f.feed}
@@ -552,28 +507,7 @@ export default function FriendsPage({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {!!cleanQuery && (
-          <View style={f.searchResults}>
-            {matchingPeople.length > 0 && (
-              <>
-                <Text style={f.eyebrow}>Members</Text>
-                {matchingPeople.map((person) => renderMember(person.id))}
-              </>
-            )}
-            {matchingActivities.length > 0 && (
-              <>
-                <Text style={[f.eyebrow, { marginTop: 10 }]}>Experiences</Text>
-                {matchingActivities.map((activity) =>
-                  renderActivity(activity.id),
-                )}
-              </>
-            )}
-          </View>
-        )}
-        <Text style={f.feedLabel}>
-          {cleanQuery ? "Matching posts" : "Your feed"}
-        </Text>
-        {!cleanQuery && (
+        <Text style={f.feedLabel}>Your feed</Text>
           <View style={f.composerRow}>
             <Avatar id="you" />
             <Pressable
@@ -585,39 +519,18 @@ export default function FriendsPage({
               <Ionicons name="create-outline" size={20} color={C.green} />
             </Pressable>
           </View>
-        )}
         {visiblePosts.map(renderPost)}
         {!visiblePosts.length && (
           <View style={f.empty}>
-            <Ionicons
-              name={cleanQuery ? "search-outline" : "people-outline"}
-              size={34}
-              color={C.green}
-            />
-            <Text style={f.emptyTitle}>
-              {cleanQuery
-                ? "No matching posts"
-                : "Good plans start with friends"}
-            </Text>
-            <Text style={f.emptyText}>
-              {cleanQuery
-                ? "Try another activity or member name."
-                : "Follow people whose taste you trust, then find your next thing to try here."}
-            </Text>
-            {!cleanQuery && showExamples && (
-              <Pressable
-                accessibilityRole="button"
-                style={f.primary}
-                onPress={() => open({ kind: "friends" })}
-              >
-                <Text style={f.primaryText}>Find friends</Text>
-              </Pressable>
-            )}
+            <Ionicons name="people-outline" size={34} color={C.green}/>
+            <Text style={f.emptyTitle}>Your feed is empty</Text>
+            <Text style={f.emptyText}>Follow friends to see their activity here.</Text>
+            {showExamples && <Pressable accessibilityRole="button" style={f.primary} onPress={() => open({ kind: "friends" })}>
+              <Text style={f.primaryText}>Find friends</Text>
+            </Pressable>}
           </View>
         )}
-        {visiblePosts.length > 0 && !cleanQuery && (
-          <Text style={f.feedEnd}>You’re all caught up</Text>
-        )}
+        {visiblePosts.length > 0 && <Text style={f.feedEnd}>You’re all caught up</Text>}
       </ScrollView>
       {!!notice && (
         <View style={f.toast} accessibilityLiveRegion="polite">
@@ -688,7 +601,7 @@ export default function FriendsPage({
                   <Text style={f.note}>{person.bio}</Text>
                   <View style={f.profileStats}>
                     <Text style={f.stat}>
-                      <Text style={f.bold}>{person.rankedCount}</Text> ranked
+                      <Text style={f.bold}>{person.rankedCount}</Text> been
                     </Text>
                     <Text style={f.stat}>
                       <Text style={f.bold}>{person.savedCount}</Text> want to
@@ -707,6 +620,17 @@ export default function FriendsPage({
                       {following ? "Following" : "Follow"}
                     </Text>
                   </Pressable>
+                  {friendCityGuides(person.id).length > 0 && <>
+                    <Text style={[f.eyebrow, { marginTop: 16 }]}>City guides</Text>
+                    {friendCityGuides(person.id).map(guide => <Pressable key={guide.key} accessibilityRole="button"
+                      accessibilityLabel={`Open ${person.name}'s ${guide.city} guide`}
+                      onPress={() => selectGuide(person.id, guide.key)} style={f.guideRow}>
+                      <Ionicons name="map-outline" color={C.green} size={24}/>
+                      <View style={f.memberText}><Text style={f.memberName}>{guide.city}</Text>
+                        <Text style={f.subtitle}>{guide.entries.length} experiences · Personal ranking</Text></View>
+                      <Ionicons name="chevron-forward" color={C.green} size={20}/>
+                    </Pressable>)}
+                  </>}
                   <Text style={[f.eyebrow, { marginTop: 16 }]}>
                     Recent activity
                   </Text>
@@ -718,41 +642,6 @@ export default function FriendsPage({
                 </>
               );
             })()}
-          {dialog?.kind === "guides" && (
-            <>
-              <Text style={f.dialogIntro}>
-                A few favorites make a great starting point in a new city.
-              </Text>
-              {showExamples && (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => selectGuide("emma")}
-                  style={f.guideRow}
-                >
-                  <Avatar id="emma" />
-                  <View style={f.memberText}>
-                    <Text style={f.memberName}>Emma’s San Luis Obispo</Text>
-                    <Text style={f.subtitle}>
-                      4 favorites · Art, gardens & a little creativity
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" color={C.green} size={20} />
-                </Pressable>
-              )}
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => selectGuide("you")}
-                style={f.guideRow}
-              >
-                <Avatar id="you" />
-                <View style={f.memberText}>
-                  <Text style={f.memberName}>Your city guide</Text>
-                  <Text style={f.subtitle}>Your favorites, ready to share</Text>
-                </View>
-                <Ionicons name="chevron-forward" color={C.green} size={20} />
-              </Pressable>
-            </>
-          )}
           {dialog?.kind === "comments" && (
             <>
               <Text style={f.dialogIntro}>{postTitle(dialog.post)}</Text>
@@ -782,15 +671,6 @@ export default function FriendsPage({
               {!dialog.post.comments.length &&
                 !social.comments[dialog.post.id]?.length && (
                   <Text style={f.emptyText}>Start the conversation.</Text>
-                )}
-              {dialog.post.kind === "request" &&
-                dialog.post.suggestedExperienceIds.length > 0 && (
-                  <>
-                    <Text style={[f.eyebrow, { marginTop: 14 }]}>
-                      Mentioned in this plan
-                    </Text>
-                    {dialog.post.suggestedExperienceIds.map(renderActivity)}
-                  </>
                 )}
               <View style={f.commentInputRow}>
                 <TextInput
@@ -917,7 +797,6 @@ export default function FriendsPage({
                     requests: [post, ...value.requests],
                   }));
                   setRequestText("");
-                  setQuery("");
                   setDialog(null);
                 }}
               >

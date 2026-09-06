@@ -180,3 +180,11 @@ test("user coordinates determine distance and radius matches outside SLO", () =>
   assert.equal(matches(museum, { ...any, radius: 1 }, atMuseum), true);
   assert.equal(matches(museum, { ...any, radius: 25 }, losAngeles), false);
 });
+
+test("custom experiences require a name and city and never invent coordinates", async () => {
+  const { createCustomExperience } = await import("./customExperience");
+  const draft = { name: "Pottery night", city: "Seattle", activityType: "Workshop", description: "", latitude: "", longitude: "" };
+  assert.equal(createCustomExperience(draft, "user:test").lat, null);
+  assert.throws(() => createCustomExperience({ ...draft, name: "" }, "user:test"), /name and city/);
+  assert.throws(() => createCustomExperience({ ...draft, latitude: "91", longitude: "0" }, "user:test"), /latitude/);
+});

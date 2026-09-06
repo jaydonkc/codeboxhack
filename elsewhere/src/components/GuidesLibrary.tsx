@@ -24,7 +24,6 @@ export default function GuidesLibrary({ guides, onOpen, onExplore }: {
       <Text style={g.heading}>Your city guides</Text>
       <Text style={g.count}>{guides.length} {guides.length === 1 ? "city" : "cities"}</Text>
     </View>
-    <Text style={g.intro}>Everywhere you’ve been, ranked by you.</Text>
     <View style={g.grid}>
       {visible.map(guide => <Pressable key={guide.key} accessibilityRole="button"
         accessibilityLabel={`Open your ${guide.city} guide, ${guide.entries.length} experiences`}
@@ -41,8 +40,8 @@ export default function GuidesLibrary({ guides, onOpen, onExplore }: {
     </View>
     {!guides.length && <View style={g.empty}>
       <Ionicons name="map-outline" size={42} color={C.green}/>
-      <Text style={g.heading}>Your first city starts here</Text>
-      <Text style={g.emptyText}>Rank an experience you’ve been to. Its city guide will appear here and grow with every visit.</Text>
+      <Text style={g.heading}>No city guides yet</Text>
+      <Text style={g.emptyText}>Rank a place you’ve been to. Your guide will appear here automatically.</Text>
       <Pressable accessibilityRole="button" onPress={onExplore} style={g.button}><Text style={g.buttonText}>Explore experiences</Text></Pressable>
     </View>}
   </View>;
@@ -54,9 +53,8 @@ const g = StyleSheet.create({
   chip: { borderWidth: 1, borderColor: C.line, borderRadius: 20, paddingHorizontal: 13, paddingVertical: 7 },
   activeChip: { backgroundColor: C.surface, borderColor: C.green },
   chipText: { color: C.muted, fontFamily: fonts.medium, fontSize: 12 },
-  headingRow: { paddingHorizontal: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headingRow: { paddingHorizontal: 22, marginBottom: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   heading: { color: C.ink, fontFamily: fonts.bold, fontSize: 18 },
-  intro: { marginHorizontal: 22, marginTop: 7, marginBottom: 18, color: C.muted, fontFamily: fonts.body, fontSize: 13 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 14, paddingHorizontal: 22 },
   card: { width: "47%", marginBottom: 12 },
   cover: { aspectRatio: 0.92, backgroundColor: C.surface, borderRadius: 9, padding: 13, overflow: "hidden", justifyContent: "flex-end", borderWidth: 1, borderColor: C.line },

@@ -2,6 +2,8 @@ import React, { type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { type Experience, priceLabel } from "../data/catalog";
+import PlaceAttribution from "./PlaceAttribution";
+import Disclosure from "./Disclosure";
 import { C, fonts } from "../theme";
 
 export type ActivityDetailProps = {
@@ -10,7 +12,7 @@ export type ActivityDetailProps = {
   personalScore?: number | null;
   saved: boolean;
   social?: { friends: number; everyone: number; count: number } | null;
-  niche: { score: number; label: string; reason: string };
+  niche: { score: number | null; label: string; reason: string };
   awareness?: string;
   note?: string;
   again?: boolean;
@@ -24,7 +26,7 @@ export type ActivityDetailProps = {
   onMap: () => void;
   onNiche: () => void;
   onAwareness: (value: "yes" | "no" | "unsure") => void;
-  onAddToGuide?: () => void;
+  onViewGuide?: () => void;
 };
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -163,7 +165,7 @@ export default function ActivityDetail({
   onMap,
   onNiche,
   onAwareness,
-  onAddToGuide,
+  onViewGuide,
 }: ActivityDetailProps) {
   const ranked = typeof personalScore === "number";
   const rankLabel = ranked
@@ -188,7 +190,7 @@ export default function ActivityDetail({
               style={d.mapCaption}
             >
               <Ionicons name="expand-outline" color={C.ink} size={14} />
-              <Text style={d.mapCaptionText}>Explore the area</Text>
+              <Text style={d.mapCaptionText}>View map</Text>
             </Pressable>
           </View>
         )}
@@ -214,12 +216,10 @@ export default function ActivityDetail({
       </View>
 
       <View style={d.intro}>
+        {activity.provider === "google" && <PlaceAttribution item={activity} />}
         <Text style={d.title} accessibilityRole="header">
           {activity.venue}
         </Text>
-        {activity.name !== activity.venue && (
-          <Text style={d.subtitle}>{activity.name}</Text>
-        )}
         <Text style={d.category}>
           {activity.activityType} · {activity.city}
         </Text>
@@ -227,7 +227,7 @@ export default function ActivityDetail({
           <View style={d.inline}>
             <Ionicons name="time-outline" size={15} color={C.muted} />
             <Text style={d.metadataText}>
-              Allow ~{activity.durationMinutesSuggested} min
+              {activity.durationMinutesSuggested === null ? "Duration varies" : `~${activity.durationMinutesSuggested} min`}
             </Text>
           </View>
           <Text style={d.metadataDot}>·</Text>
@@ -267,7 +267,7 @@ export default function ActivityDetail({
           </Pressable>
         </View>
         <View style={d.actions}>
-          <Action icon="globe-outline" label="Website" onPress={onWebsite} />
+          <Action icon="globe-outline" label={activity.provider === "google" ? "Google Maps" : activity.id.startsWith("user:") ? "Find place" : "Website"} onPress={onWebsite} />
           <Action
             icon="navigate-outline"
             label="Directions"
@@ -278,9 +278,6 @@ export default function ActivityDetail({
       </View>
 
       <View style={d.section}>
-        <Text style={d.sectionTitle} accessibilityRole="header">
-          Scores
-        </Text>
         <View style={d.scores}>
           <Score
             label="Your score"
@@ -300,39 +297,28 @@ export default function ActivityDetail({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Nicheness ${niche.score.toFixed(1)} out of 10, ${niche.label}. View estimate details`}
+        accessibilityLabel={`Nicheness ${(niche.score?.toFixed(1) ?? "Unknown")} out of 10. About this score`}
         onPress={onNiche}
         style={({ pressed }) => [d.nicheCard, pressed && d.pressed]}
       >
         <View style={d.nicheHeading}>
           <View style={d.nicheIcon}>
-            <Ionicons name="sparkles-outline" size={20} color={C.purple} />
+            <Ionicons name="sparkles-outline" size={20} color={C.green} />
           </View>
           <View style={d.nicheTextColumn}>
-            <Text style={d.nicheTitle}>How niche is it?</Text>
-            <Text style={d.nicheCaption}>{niche.label} · out of 10</Text>
+            <Text style={d.nicheTitle}>Nicheness</Text>
+            <Text style={d.nicheCaption}>{niche.score === null ? "No score yet" : "Out of 10"}</Text>
           </View>
-          <Text style={d.nicheValue}>{niche.score.toFixed(1)}</Text>
-          <Ionicons name="chevron-forward" size={16} color={C.purple} />
+          <Text style={d.nicheValue}>{niche.score?.toFixed(1) ?? "—"}</Text>
+          <Ionicons name="chevron-forward" size={16} color={C.green} />
         </View>
-        <Text style={d.nicheReason}>{niche.reason}</Text>
       </Pressable>
 
-      <View style={d.section}>
-        <Text style={d.sectionTitle} accessibilityRole="header">
-          About
-        </Text>
-        <Text style={d.body}>{activity.description}</Text>
-        <View style={d.tags}>
-          {activity.vibes.map((vibe) => (
-            <View key={vibe} style={d.tag}>
-              <Text style={d.tagText}>{vibe}</Text>
-            </View>
-          ))}
-        </View>
+      <View style={{ marginHorizontal: 22 }}>
+        <Disclosure title="About"><Text style={d.body}>{activity.description}</Text></Disclosure>
       </View>
 
-      {(note?.trim() || again || onAddToGuide) && (
+      {(note?.trim() || again || onViewGuide) && (
         <View style={d.section}>
           <View style={d.sectionHeading}>
             <Text style={d.sectionTitle} accessibilityRole="header">
@@ -354,24 +340,22 @@ export default function ActivityDetail({
               <Text style={d.link}>You’d do this again</Text>
             </View>
           )}
-          {onAddToGuide && (
+          {onViewGuide && (
             <Pressable
               accessibilityRole="button"
-              onPress={onAddToGuide}
+              onPress={onViewGuide}
               style={({ pressed }) => [d.guideButton, pressed && d.pressed]}
             >
               <Ionicons name="map-outline" color={C.green} size={19} />
-              <Text style={d.guideText}>Add to my city guide</Text>
-              <Ionicons name="add" color={C.green} size={20} />
+              <Text style={d.guideText}>View my city guide</Text>
+              <Ionicons name="chevron-forward" color={C.green} size={20} />
             </Pressable>
           )}
         </View>
       )}
 
       <View style={d.section}>
-        <Text style={d.sectionTitle} accessibilityRole="header">
-          Plan your visit
-        </Text>
+        <Text style={d.sectionTitle} accessibilityRole="header">Visit details</Text>
         <Information icon="time-outline" title="Hours & access">
           <Text style={d.informationText}>{activity.scheduleNote}</Text>
         </Information>
@@ -395,48 +379,6 @@ export default function ActivityDetail({
         </Information>
       </View>
 
-      <View style={d.familiarity}>
-        <Text style={d.sectionTitle} accessibilityRole="header">
-          Had you heard of it?
-        </Text>
-        <Text style={d.familiarityCaption}>
-          Before finding it on Elsewhere.
-        </Text>
-        <View style={d.familiarityChoices}>
-          {(
-            [
-              ["yes", "Yes"],
-              ["no", "No"],
-              ["unsure", "Not sure"],
-            ] as const
-          ).map(([value, label]) => (
-            <Pressable
-              key={value}
-              accessibilityRole="button"
-              accessibilityState={{ selected: awareness === value }}
-              onPress={() => onAwareness(value)}
-              style={({ pressed }) => [
-                d.familiarityChoice,
-                awareness === value && d.familiaritySelected,
-                pressed && d.pressed,
-              ]}
-            >
-              <Text
-                style={[
-                  d.familiarityLabel,
-                  awareness === value && d.familiaritySelectedLabel,
-                ]}
-              >
-                {label}
-              </Text>
-              {awareness === value && (
-                <Ionicons name="checkmark" size={16} color={C.greenInk} />
-              )}
-            </Pressable>
-          ))}
-        </View>
-        {!!awareness && <Text style={d.thanks}>Thanks for sharing.</Text>}
-      </View>
     </View>
   );
 }
@@ -598,7 +540,7 @@ const d = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    marginTop: 18,
+    marginTop: 0,
   },
   scoreColumn: { flex: 1, alignItems: "center", gap: 9 },
   scoreCircle: {
@@ -637,8 +579,8 @@ const d = StyleSheet.create({
     marginHorizontal: 22,
     marginBottom: 21,
     padding: 16,
-    backgroundColor: C.purpleBg,
-    borderRadius: 17,
+    backgroundColor: C.surface,
+    borderRadius: 12,
     gap: 10,
   },
   nicheHeading: { flexDirection: "row", alignItems: "center", gap: 9 },
@@ -650,19 +592,19 @@ const d = StyleSheet.create({
   },
   nicheTextColumn: { flex: 1 },
   nicheTitle: {
-    color: C.purple,
+    color: C.green,
     fontFamily: fonts.bold,
     fontSize: 16,
     lineHeight: 22,
   },
   nicheCaption: {
-    color: "#c5b4d2",
+    color: C.muted,
     fontFamily: fonts.body,
     fontSize: 11,
     lineHeight: 18,
   },
   nicheValue: {
-    color: C.purple,
+    color: C.green,
     fontFamily: fonts.bold,
     fontSize: 25,
     letterSpacing: -0.7,

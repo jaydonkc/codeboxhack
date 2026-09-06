@@ -25,29 +25,44 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import { C, fonts, s } from "./src/theme";
 import {
-  byId,
-  catalog,
-  demoGuide,
+  catalog as sampleCatalog,
   demoReviews,
   distance,
   Experience,
   Filters,
   SearchOrigin,
+  MapBounds,
   icons,
   matches,
   priceLabel,
   VIBES,
 } from "./src/data/catalog";
 import ExperienceMap from "./src/components/ExperienceMap";
+import FilterSlider from "./src/components/FilterSlider";
+import Disclosure from "./src/components/Disclosure";
 import BottomSheet from "./src/components/Sheet";
 import ActivityDetail from "./src/components/ActivityDetail";
 import FriendsPage from "./src/components/FriendsPage";
+import LeaderboardPage from "./src/components/LeaderboardPage";
+import GuidesLibrary from "./src/components/GuidesLibrary";
+import CityGuidePage from "./src/components/CityGuidePage";
+import { buildCityGuides, cityGuideText, cityKey, guideCityName } from "./src/core/guides";
+import { friendCityGuides } from "./src/data/friendGuides";
+import { friendById, type FriendId } from "./src/data/friends";
+import { matchesIntent, matchesNiche, orderExperiences, type DiscoveryContext, type DiscoveryMode, type DiscoverySort } from "./src/core/discovery";
+import { createCustomExperience, type CustomDraft } from "./src/core/customExperience";
+import PlaceAttribution from "./src/components/PlaceAttribution";
+import { useDeviceLocation } from "./src/components/useDeviceLocation";
+import { livePlacesEnabled, requestPlaces } from "./src/services/places";
+import { isGoogleId, unresolvedPlace, type CitySuggestion } from "./src/services/placesTypes";
+import { usePlaceSearch } from "./src/services/usePlaceSearch";
 import { getNicheness } from "./src/data/nicheness";
 import {
   answerRanking,
   Band,
   beginRanking,
   currentOpponent,
+  rankPositions,
   finishRanking,
   Preference,
   RankingAnswer,
@@ -55,59 +70,74 @@ import {
   scorePreferences,
 } from "./src/core/ranking";
 
-type Page = "discover" | "lists" | "friends" | "you" | "detail" | "guide";
+type Page = "discover" | "lists" | "friends" | "leaderboard" | "you" | "detail" | "guide";
 type Sheet =
+  | "rank"
+  | "add-experience"
+  | "distance"
+  | "sort"
   | "filters"
   | "city"
   | "log"
   | "niche"
   | "share"
   | "menu"
-  | "activity"
   | "about"
   | "experience-share"
   | "experience-actions"
   | null;
 type Stored = {
   version: 1;
+  placeholderVersion?: number;
   saved: string[];
   preferences: Preference[];
   awareness: Record<string, string>;
-  guide: string[];
-  guideNotes: Record<string, string>;
   interests: string[];
   demoSocial: boolean;
   city: string;
+  cityPlaceId?: string;
+  customExperiences: Experience[];
 };
+const seed: Preference[] = [
+  { id: "bishop-peak", band: "liked", rank: 1, again: true, note: "Great views. Go early." },
+  { id: "anam-cre-pottery", band: "liked", rank: 2, again: true },
+  { id: "leaning-pine-arboretum", band: "liked", rank: 3, again: true },
+  { id: "sloma", band: "liked", rank: 4, again: true },
+  { id: "downtown-farmers-market", band: "liked", rank: 5, again: true },
+  { id: "cerro-san-luis", band: "okay", rank: 1 },
+  { id: "bubblegum-alley", band: "okay", rank: 2 },
+];
+const seedSaved = ["slo-botanical-garden", "slo-skate-park", "history-center", "downtown-creek-walk"];
+function seedLists(value: Stored): Stored {
+  if (value.placeholderVersion === 1) return value;
+  const preferences = [...value.preferences];
+  for (const item of seed) {
+    if (preferences.some(p => p.id === item.id)) continue;
+    const rank = Math.max(0, ...preferences.filter(p => p.band === item.band).map(p => p.rank ?? 0)) + 1;
+    preferences.push({ ...item, rank });
+  }
+  return { ...value, placeholderVersion: 1, preferences,
+    saved: [...new Set([...value.saved, ...seedSaved.filter(id => !preferences.some(p => p.id === id))])],
+  };
+}
 const fresh: Stored = {
   version: 1,
   saved: [],
   preferences: [],
   awareness: {},
-  guide: [],
-  guideNotes: {},
   interests: ["Relax", "Creative"],
   demoSocial: true,
   city: "San Luis Obispo",
-};
-const seed: Preference[] = [
-  { id: "sloma", band: "liked", rank: 1, again: true },
-  { id: "leaning-pine-arboretum", band: "liked", rank: 2, again: true },
-  { id: "downtown-creek-walk", band: "liked", rank: 3, again: true },
-];
-const friendGuideNotes: Record<string, string> = {
-  sloma: "Start with a little art beside Mission Plaza.",
-  "leaning-pine-arboretum": "A quiet garden detour when you want to slow down.",
-  "downtown-farmers-market": "Make Thursday evening your downtown night.",
-  "anam-cre-pottery":
-    "Book a class and make something to remember the trip by.",
+  customExperiences: [],
 };
 const bands: Record<Band, string> = {
   liked: "Liked it",
   okay: "It was okay",
   disliked: "Didn’t like it",
 };
-const validId = (id: string) => catalog.some((x) => x.id === id);
+const sortLabels: Record<DiscoverySort, string> = { "for-you": "For You", enjoyment: "Enjoyment", niche: "Nicheness", distance: "Distance", price: "Price" };
+const validId = (id: string) => (typeof id === "string" && /^user:[A-Za-z0-9_-]+$/.test(id)) || isGoogleId(id) || sampleCatalog.some((x) => x.id === id);
+const nicheFor = (id: string) => sampleCatalog.some(e => e.id === id) ? getNicheness(id) : null;
 const I = ({
   name,
   size = 20,
@@ -204,15 +234,29 @@ export default function App() {
   );
 }
 function Elsewhere() {
-  const [data, setData] = useState<Stored>(fresh),
+  const [data, setData] = useState<Stored>(() => seedLists(fresh)),
     [hydrated, setHydrated] = useState(false),
-    [page, setPage] = useState<Page>("discover"),
+    [page, setPage] = useState<Page>("friends"),
     [sheet, setSheet] = useState<Sheet>(null);
   const [selected, setSelected] = useState("sloma"),
-    [listTab, setListTab] = useState("saved"),
+    [listTab, setListTab] = useState("done"),
     [map, setMap] = useState(false),
     [audience, setAudience] = useState<"Friends" | "Everyone">("Friends");
-  const [mode, setMode] = useState("all"),
+  const [sort, setSort] = useState<DiscoverySort>("for-you");
+  const [draftFilters, setDraftFilters] = useState<Filters>({ budget: null, radius: null, duration: null, vibes: [], query: "" });
+  const [draftNiche, setDraftNiche] = useState<[number, number]>([0, 10]);
+  const [draftSort, setDraftSort] = useState<DiscoverySort>("for-you");
+  const [filterSection, setFilterSection] = useState<string>();
+  const [listCity, setListCity] = useState<string | null>(null);
+  const [draftListCity, setDraftListCity] = useState<string | null>(null);
+  const [rankQuery, setRankQuery] = useState("");
+  const [rankSearchQuery, setRankSearchQuery] = useState("");
+  const addIntent = useRef<"save" | "rank">("save");
+  const rankFromNav = useRef(false);
+  const cityDestination = useRef<Sheet>(null);
+  const [nicheDirection, setNicheDirection] = useState<"asc" | "desc">("desc");
+  const [nicheRange, setNicheRange] = useState<[number, number]>([0, 10]);
+  const [mode, setMode] = useState<DiscoveryMode>("all"),
     [filters, setFilters] = useState<Filters>({
       budget: null,
       radius: null,
@@ -220,10 +264,27 @@ function Elsewhere() {
       vibes: [],
       query: "",
     });
-  const [owner, setOwner] = useState<"you" | "emma">("emma"),
+  const [searchOrigin, setSearchOrigin] = useState<SearchOrigin>();
+  const [originLabel, setOriginLabel] = useState("Choose location");
+  const [sampleMode, setSampleMode] = useState(!livePlacesEnabled);
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [customDraft, setCustomDraft] = useState<CustomDraft>({ name: "", city: "", activityType: "", description: "", latitude: "", longitude: "" });
+  const [customError, setCustomError] = useState("");
+  const [cities, setCities] = useState<CitySuggestion[]>([]);
+  const [cityLoading, setCityLoading] = useState(false);
+  const [cityError, setCityError] = useState("");
+  const cityGeneration = useRef(0);
+  const deviceLocation = useDeviceLocation();
+  const live = usePlaceSearch(searchOrigin, filters.radius, filters.bounds, submittedQuery, !sampleMode && hydrated, [...data.saved, ...data.preferences.map(p => p.id)]);
+  const rankSearch = usePlaceSearch(searchOrigin ?? (sampleMode ? { lat: 35.28, lng: -120.6625 } : undefined), null, undefined, rankSearchQuery, sheet === "rank" && !!rankSearchQuery, []);
+  const catalog = [...sampleCatalog, ...data.customExperiences, ...Object.values({ ...rankSearch.registry, ...live.registry })];
+  const byId = (id: string): Experience => catalog.find(e => e.id === id) ?? unresolvedPlace(id);
+  const [owner, setOwner] = useState<"you" | FriendId>("you"),
     [session, setSession] = useState<RankingSession | null>(null),
     [note, setNote] = useState(""),
     [again, setAgain] = useState(false);
+  const [guideCity, setGuideCity] = useState<string | null>(null);
+  const guideReturnPage = useRef<Page>("lists");
   const [toast, setToast] = useState(""),
     [cityQuery, setCityQuery] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -246,22 +307,22 @@ function Elsewhere() {
             Array.isArray(p.preferences) &&
             Array.isArray(p.saved)
           )
-            setData({
+            setData(seedLists({
               ...fresh,
               ...p,
               city:
                 typeof p.city === "string" && p.city.trim()
                   ? p.city
                   : fresh.city,
+              customExperiences: Array.isArray(p.customExperiences) ? p.customExperiences.filter((e: Experience) => typeof e?.id === "string" && e.id.startsWith("user:") && typeof e.name === "string" && typeof e.city === "string" && Array.isArray(e.vibes)) : [],
               saved: p.saved.filter(validId),
-              guide: (p.guide || []).filter(validId),
               preferences: p.preferences.filter(
                 (r: Preference) =>
                   validId(r.id) &&
                   ["liked", "okay", "disliked"].includes(r.band) &&
                   (r.rank === null || (Number.isFinite(r.rank) && r.rank >= 1)),
               ),
-            });
+            }));
         }
       })
       .catch(() => notify("Could not load your saved experiences."))
@@ -284,11 +345,19 @@ function Elsewhere() {
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (sheet) {
-        setSheet(null);
+        closeSheet();
         return true;
       }
-      if (page !== "discover") {
-        setPage("discover");
+      if (page === "detail") {
+        nav(returnPage.current);
+        return true;
+      }
+      if (page === "guide") {
+        nav(guideReturnPage.current);
+        return true;
+      }
+      if (page !== "friends") {
+        nav("friends");
         return true;
       }
       return false;
@@ -309,10 +378,18 @@ function Elsewhere() {
   function detail(id: string) {
     returnPage.current = page;
     setSelected(id);
+    if (isGoogleId(id) && !live.registry[id]) void live.refresh(id).catch(() => notify("Couldn’t load place details. Your saved reference is still available."));
     nav("detail");
   }
-  function guide(who: "you" | "emma") {
+  function openGuides() {
+    setListTab("guides");
+    nav("lists");
+  }
+  function guide(who: "you" | FriendId, city?: string) {
+    if (page !== "guide" && !(page === "detail" && returnPage.current === "guide"))
+      guideReturnPage.current = page === "detail" ? returnPage.current : page;
     setOwner(who);
+    setGuideCity(city ? cityKey(city) : null);
     nav("guide");
   }
   function save(id: string) {
@@ -327,6 +404,9 @@ function Elsewhere() {
     setFilters((f) => ({ ...f, ...p }));
   }
   function clearFilters() {
+    setListCity(null);
+    setNicheRange([0, 10]);
+    setSubmittedQuery("");
     setFilters({
       budget: null,
       radius: null,
@@ -335,28 +415,99 @@ function Elsewhere() {
       query: "",
     });
   }
+  function openFilters(section?: string) {
+    setDraftFilters({ ...filters, vibes: [...filters.vibes] });
+    setDraftNiche([...nicheRange]);
+    setDraftSort(sort);
+    setDraftListCity(listCity);
+    setFilterSection(section);
+    setSheet("filters");
+  }
   function chooseCity() {
+    cityDestination.current = sheet === "rank" ? "rank" : null;
     setCityQuery("");
+    setCities([]);
+    setCityError("");
     setSheet("city");
   }
-  const [searchOrigin, setSearchOrigin] = useState<SearchOrigin>();
-  const locationLabel = searchOrigin ? "Near you" : data.city;
+  function closeSheet() {
+    setSheet(sheet === "city" ? cityDestination.current : null);
+    cityDestination.current = null;
+  }
+  const locationLabel = searchOrigin ? originLabel : sampleMode ? data.city : originLabel;
   function useMyLocation(point: SearchOrigin) {
     setSearchOrigin(point);
+    setOriginLabel("Near you");
+    setSampleMode(!livePlacesEnabled);
+    setSheet(sheet === "city" ? cityDestination.current : null);
+    cityDestination.current = null;
     filter({ bounds: undefined, radius: filters.radius ?? 25 });
   }
   function selectCity(value: string) {
     const trimmed = value.trim();
     if (!trimmed) return;
-    setSearchOrigin(undefined);
+    setSampleMode(true);
+    setOriginLabel("San Luis Obispo");
+    setSearchOrigin({ lat: 35.28, lng: -120.6625 });
     const city = /^(slo|san luis obispo)$/i.test(trimmed)
       ? "San Luis Obispo"
       : trimmed;
-    setData((d) => ({ ...d, city }));
+    setData((d) => ({ ...d, city, cityPlaceId: undefined }));
     filter({ bounds: undefined });
-    setSheet(null);
+    setSheet(cityDestination.current);
+    cityDestination.current = null;
   }
-  function log(id: string) {
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void deviceLocation.locateIfPermitted(point => { if (!cancelled) useMyLocation(point); }).then(async located => {
+      if (located || cancelled || !livePlacesEnabled || !data.cityPlaceId) return;
+      try {
+        const result = await requestPlaces({ action: "city", id: data.cityPlaceId });
+        if (!cancelled && result.city) { setSearchOrigin(result.city.origin); setOriginLabel(result.city.label); }
+      } catch { /* A new city or location can be selected if restoring fails. */ }
+    });
+    return () => { cancelled = true; };
+  }, [hydrated]);
+  useEffect(() => {
+    if (sheet !== "city" || !livePlacesEnabled || cityQuery.trim().length < 2) { ++cityGeneration.current; setCities([]); setCityLoading(false); return; }
+    const controller = new AbortController();
+    const gen = ++cityGeneration.current;
+    setCities([]); setCityLoading(true); setCityError("");
+    const timer = setTimeout(() => {
+      requestPlaces({ action: "cities", query: cityQuery }, controller.signal).then(r => {
+        if (!controller.signal.aborted && cityGeneration.current === gen) setCities(r.cities ?? []);
+      }).catch(e => { if (!controller.signal.aborted) setCityError(e.name === "AbortError" ? "City search timed out. Try again." : e.message); })
+        .finally(() => { if (!controller.signal.aborted) setCityLoading(false); });
+    }, 450);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [cityQuery, sheet]);
+  useEffect(() => {
+    if (sheet !== "rank") return;
+    const timeout = setTimeout(() => setRankSearchQuery(rankQuery.trim().length >= 2 ? rankQuery.trim() : ""), 450);
+    return () => clearTimeout(timeout);
+  }, [rankQuery, sheet]);
+  async function pickCity(city: CitySuggestion) {
+    const gen = ++cityGeneration.current;
+    setCityLoading(true); setCityError("");
+    try {
+      const result = await requestPlaces({ action: "city", id: city.id });
+      if (gen !== cityGeneration.current || !result.city) return;
+      setSearchOrigin(result.city.origin); setOriginLabel(city.label); setSampleMode(false);
+      setData(d => ({ ...d, city: cityQuery.trim() || d.city, cityPlaceId: city.id }));
+      filter({ bounds: undefined }); setSheet(cityDestination.current); cityDestination.current = null;
+    } catch (e) { if (gen === cityGeneration.current) setCityError(e instanceof Error ? e.message : "Couldn’t select that city."); }
+    finally { if (gen === cityGeneration.current) setCityLoading(false); }
+  }
+  function searchArea(bounds: MapBounds) {
+    const span = (bounds.east - bounds.west + 360) % 360;
+    const lng = ((bounds.west + span / 2 + 540) % 360) - 180;
+    setSearchOrigin({ lat: (bounds.north + bounds.south) / 2, lng });
+    setOriginLabel("Map area");
+    filter({ bounds, radius: null });
+  }
+  function log(id: string, fromNav = false) {
+    rankFromNav.current = fromNav;
     setSelected(id);
     setSession(null);
     const old = data.preferences.find((p) => p.id === id);
@@ -364,395 +515,130 @@ function Elsewhere() {
     setAgain(old?.again || false);
     setSheet("log");
   }
-  function fit(e: Experience) {
-    const explicit =
-      e.vibes.filter((v) => data.interests.includes(v)).length /
-      Math.max(e.vibes.length, 1);
-    let total = 0,
-      w = 0;
-    for (const p of data.preferences) {
-      const prev = byId(p.id),
-        similar =
-          (prev.activityType === e.activityType ? 2 : 0) +
-          prev.vibes.filter((v) => e.vibes.includes(v)).length;
-      total += similar * (p.band === "liked" ? 1 : p.band === "okay" ? 0.5 : 0);
-      w += similar;
-    }
-    return w ? (explicit * 2 + total) / (2 + w) : explicit;
+  function openRank() {
+    rankFromNav.current = true;
+    setRankQuery("");
+    setRankSearchQuery("");
+    setSheet("rank");
   }
-  function reason(e: Experience) {
-    if (data.preferences.some((p) => p.id === e.id && p.band === "liked"))
-      return "A good one to do again";
-    const v = e.vibes.filter((v) => data.interests.includes(v));
-    return v.length
-      ? `Fits your ${v.join(" + ").toLowerCase()} interests`
-      : "A different kind of day to try";
+  function addPlace(intent: "save" | "rank", name = "") {
+    addIntent.current = intent;
+    setCustomDraft({ name, city: data.city, activityType: "", description: "", latitude: "", longitude: "" });
+    setCustomError("");
+    setSheet("add-experience");
   }
-  const cityCatalog = catalog.filter(
-    (e) =>
-      searchOrigin ? (distance(e, searchOrigin) ?? Infinity) <= (filters.radius ?? 25) : e.city.replace(/^Near /, "").toLowerCase() === data.city.toLowerCase(),
-  );
-  let results = cityCatalog.filter((e) => matches(e, filters, searchOrigin));
+  const discoveryContext: DiscoveryContext = {
+    catalog, preferences: data.preferences, interests: data.interests,
+    audience, social: data.demoSocial ? demoReviews : undefined, origin: searchOrigin,
+  };
+  const cityCatalog = sampleMode ? sampleCatalog.filter(e => searchOrigin ? (distance(e, searchOrigin) ?? Infinity) <= (filters.radius ?? 25) : e.city.replace(/^Near /, "").toLowerCase() === data.city.toLowerCase()) : live.items;
+  const listCatalog = [...new Set([...data.saved, ...data.preferences.map(p => p.id)])].map(byId);
+  let results = (page === "lists" ? listCatalog : cityCatalog).filter(e => matches(e, { ...filters, ...(page === "lists" ? { bounds: undefined, radius: null } : {}), query: !sampleMode && page === "discover" ? "" : filters.query }, searchOrigin) && matchesNiche(nicheFor(e.id)?.score ?? null, nicheRange));
   if (page === "lists")
     results = results.filter((e) =>
-      listTab === "saved" ? data.saved.includes(e.id) : done.has(e.id),
+      (listTab === "saved" ? data.saved.includes(e.id) : done.has(e.id)) && (!listCity || cityKey(e.city) === listCity),
     );
-  if (page === "discover" && mode === "new")
-    results = results.filter((e) => !done.has(e.id));
-  if (page === "discover" && mode === "familiar")
-    results = results.filter(
-      (e) =>
-        data.preferences.some((p) => p.id === e.id && p.band === "liked") ||
-        e.vibes.some((v) => data.interests.includes(v)),
-    );
-  results.sort((a, b) =>
-    page === "lists" && listTab === "done"
-      ? (scores[b.id] ?? -1) - (scores[a.id] ?? -1)
-      : fit(b) - fit(a),
-  );
-  const guideIds = owner === "you" ? data.guide : demoGuide;
-  const guideText =
-    `${owner === "you" ? "My SLO favorites" : "A slow weekend in SLO"}\nSan Luis Obispo\n\n` +
-    guideIds
-      .map(
-        (id, i) =>
-          `${i + 1}. ${byId(id).name}\n${owner === "you" ? data.guideNotes[id] || "" : friendGuideNotes[id] || ""}\n${byId(id).sourceUrl}`,
-      )
-      .join("\n\n");
+  if (page === "discover") results = results.filter(e => matchesIntent(e, mode, discoveryContext));
+  const personalList = page === "lists" && listTab === "done";
+  const rankedOrder = personalList && (sort === "for-you" || sort === "enjoyment");
+  results = orderExperiences(results, sort, discoveryContext, id => nicheFor(id)?.score ?? null, rankedOrder, nicheDirection);
+  const ownGuides = buildCityGuides(data.preferences, catalog);
+  const ownerGuides = owner === "you" ? ownGuides : friendCityGuides(owner);
+  const activeGuide = guideCity ? ownerGuides.find(g => g.key === guideCity) : ownerGuides[0];
+  const guideOwner = owner === "you" ? "You" : friendById(owner).name;
+  const guideText = activeGuide ? cityGuideText(activeGuide, guideOwner) : "";
   const official = (url: string) =>
     Linking.openURL(url).catch(() =>
       notify("Could not open the official source."),
     );
-  function score(e: Experience) {
-    return (
-      <View style={s.score}>
-        <I name="people-outline" color={C.green} size={14} />
-        <T style={s.scoreText}>
-          {page === "lists" && listTab === "done"
-            ? scores[e.id] === null
-              ? "Not fully ranked"
-              : `You ${scores[e.id]?.toFixed(1)}`
-            : data.demoSocial
-              ? `${audience} ${demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"].toFixed(1)}`
-              : "Unrated"}
-        </T>
-      </View>
-    );
-  }
+  const personalPositions = rankPositions(data.preferences);
   function card(e: Experience) {
+    const personal = page === "lists" && listTab === "done";
+    const enjoyment = personal ? scores[e.id] : data.demoSocial && demoReviews[e.id]
+      ? demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"] : null;
+    const niche = nicheFor(e.id)?.score;
+    const miles = distance(e, searchOrigin);
     return (
-      <View style={s.card} key={e.id}>
-        <View style={s.cardBody}>
-          <View style={[s.row, { alignItems: "flex-start" }]}>
-            <View style={[s.avatar, { borderRadius: 12 }]}>
-              <I
-                name={icons[e.activityType] || "compass-outline"}
-                color={C.green}
-              />
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`View ${e.name}`}
-              onPress={() => detail(e.id)}
-              style={{ flex: 1, gap: 4 }}
-            >
-              <T style={s.heading}>{e.name}</T>
-              <T style={s.tiny}>{e.venue}</T>
+      <View key={e.id} style={s.card}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 15 }}>
+          {personal && <T style={{ color: C.muted, fontSize: 14, width: 18 }}>{personalPositions[e.id] ?? "—"}</T>}
+          <Pressable accessibilityRole="button" accessibilityLabel={`View ${e.venue}`} onPress={() => detail(e.id)} style={{ flex: 1, gap: 5 }}>
+            <T style={{ fontFamily: fonts.bold, fontSize: 17, lineHeight: 22 }}>{e.venue}</T>
+            <T style={s.tiny}>{e.priceUSD === 0 ? "Free" : e.priceUSD == null ? "Check price" : `$${e.priceUSD}`} · {e.activityType}</T>
+            <T style={s.tiny}>{e.city || "Location unavailable"}{miles == null ? "" : ` · ${miles.toFixed(1)} mi`}</T>
+            {e.provider === "google" && <PlaceAttribution item={e} />}
+          </Pressable>
+          <View style={{ alignItems: "center", width: 66 }}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`${personal ? "Your" : audience} enjoyment ${enjoyment == null ? "unrated" : enjoyment.toFixed(1)}`} onPress={() => personal ? log(e.id) : detail(e.id)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.green, alignItems: "center", justifyContent: "center" }}>
+              <T style={{ color: C.greenInk, fontSize: 18, fontFamily: fonts.bold }}>{enjoyment == null ? "—" : enjoyment.toFixed(1)}</T>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${data.saved.includes(e.id) ? "Unsave" : "Save"} ${e.name}`}
-              accessibilityState={{ selected: data.saved.includes(e.id) }}
-              onPress={() => save(e.id)}
-              style={[
-                s.save,
-                data.saved.includes(e.id) && { backgroundColor: C.green },
-              ]}
-            >
-              <I
-                name={
-                  data.saved.includes(e.id) ? "bookmark" : "bookmark-outline"
-                }
-                color={data.saved.includes(e.id) ? C.greenInk : C.ink}
-                size={18}
-              />
-            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Niche ${niche == null ? "unknown" : niche.toFixed(1)}. About this score`} onPress={() => { setSelected(e.id); setSheet("niche"); }} style={{ minHeight: 34, justifyContent: "center" }}><T style={{ ...s.tiny, fontSize: 10 }}>Niche {niche == null ? "—" : niche.toFixed(1)}</T></Pressable>
           </View>
-          <T style={s.muted}>
-            {e.vibes.join(" · ")}
-            {"\n"}
-            {priceLabel(e)} · ~{e.durationMinutesSuggested} min ·{" "}
-            {distance(e, searchOrigin)?.toFixed(1)} mi
-          </T>
-          <View style={s.wrap}>
-            {score(e)}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setSelected(e.id);
-                setSheet("niche");
-              }}
-              style={s.niche}
-            >
-              <T style={s.nicheText}>
-                Niche {getNicheness(e.id).score.toFixed(1)}
-              </T>
-            </Pressable>
-          </View>
-          <View style={s.reason}>
-            <I name="sparkles-outline" color={C.coral} size={15} />
-            <T style={[s.tiny, { flex: 1 }]}>{reason(e)}</T>
-            {!done.has(e.id) && <T style={s.tiny}>New to you</T>}
-          </View>
-          {page === "lists" && listTab === "done" && (
-            <Button secondary onPress={() => log(e.id)}>
-              {scores[e.id] === null ? "Finish ranking" : "Rerank"}
-            </Button>
-          )}
+          {!personal && <Icon name={data.saved.includes(e.id) ? "bookmark" : "bookmark-outline"} label={`${data.saved.includes(e.id) ? "Unsave" : "Save"} ${e.venue}`} onPress={() => save(e.id)} />}
         </View>
       </View>
-    );
-  }
-  function teaser() {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => guide("emma")}
-        style={s.guide}
-      >
-        <View style={s.row}>
-          <View style={s.avatar}>
-            <T>EM</T>
-          </View>
-          <View>
-            <T style={s.eyebrow}>A FRIEND’S CITY GUIDE</T>
-            <T style={s.tiny}>Emma · 4 picks</T>
-          </View>
-        </View>
-        <T style={s.serif}>A slow weekend{"\n"}in SLO.</T>
-        <T style={s.muted}>4 things worth making time for ↗</T>
-      </Pressable>
     );
   }
   function browse() {
-    return (
-      <>
-        <View style={s.quick}>
-          {[
-            ["new", "sparkles-outline", "New to you"],
-            ["familiar", "heart-outline", "Favorites"],
-            ["map", "map-outline", "Nearby map"],
-          ].map(([m, icon, label]) => (
-            <Pressable
-              accessibilityRole="button"
-              key={m}
-              style={[
-                s.quickButton,
-                (m === "map" ? map : mode === m) && s.quickActive,
-              ]}
-              onPress={() => {
-                if (m === "map") setMap(!map);
-                else {
-                  setMode(mode === m ? "all" : m);
-                  if (page !== "discover") nav("discover");
-                }
-              }}
-            >
-              <I name={icon} size={14} color={C.green} />
-              <T style={{ fontSize: 12, fontFamily: fonts.medium }}>{label}</T>
-            </Pressable>
-          ))}
-        </View>
-        <View style={[s.between, s.pad]}>
-          <T style={s.title}>Experiences</T>
-          <Pressable accessibilityRole="button" onPress={chooseCity}>
-            <T style={s.tiny}>{locationLabel} ⌄</T>
-          </Pressable>
-        </View>
-        <View style={s.tabs}>
-          {[
-            ["discover", "For you"],
-            ["done", "Been"],
-            ["saved", "Want to try"],
-            ["guides", "Guides"],
-          ].map(([key, label]) => {
-            const active =
-              key === "discover"
-                ? page === "discover"
-                : page === "lists" && listTab === key;
-            return (
-              <Pressable
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                key={key}
-                style={[s.tab, active && s.tabActive]}
-                onPress={() => {
-                  if (key === "guides")
-                    guide(data.guide.length ? "you" : "emma");
-                  else if (key === "discover") nav("discover");
-                  else {
-                    setListTab(key);
-                    nav("lists");
-                  }
-                }}
-              >
-                <T
-                  style={[
-                    s.muted,
-                    active && { color: C.ink, fontFamily: fonts.bold },
-                  ]}
-                >
-                  {label}
-                </T>
-              </Pressable>
-            );
-          })}
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{
-            paddingHorizontal: 22,
-            gap: 7,
-            paddingBottom: 14,
-          }}
-        >
-          <Pill
-            label="Filters"
-            icon="options-outline"
-            onPress={() => setSheet("filters")}
-          />
-          <Pill
-            label={locationLabel}
-            icon="location-outline"
-            onPress={chooseCity}
-          />
-          <Pill
-            label={
-              filters.budget === null ? "Any price" : `Under $${filters.budget}`
-            }
-            active={filters.budget !== null}
-            onPress={() => setSheet("filters")}
-          />
-          <Pill
-            label={filters.radius ? `${filters.radius} mi` : "Distance"}
-            onPress={() => setSheet("filters")}
-          />
+    const tabs = page === "lists"
+      ? [["done", "Been"], ["saved", "Want to try"], ["guides", "Guides"]]
+      : [["all", "For you"], ["new", "New to you"], ["familiar", "Favorites"]];
+    const activeFilters = Number(page === "lists" && !!listCity) + Number(nicheRange[0] !== 0 || nicheRange[1] !== 10) + Number(filters.budget !== null) + Number(filters.duration !== null) + Number(!!filters.vibes.length);
+    return <>
+      <View style={s.tabs}>
+        {tabs.map(([key, label]) => {
+          const active = page === "lists" ? listTab === key : mode === key;
+          return <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={() => page === "lists" ? setListTab(key) : setMode(key as DiscoveryMode)} style={[s.tab, active && s.tabActive]}>
+            <T style={[s.muted, active && { color: C.ink, fontFamily: fonts.bold }]}>{label}</T>
+          </Pressable>;
+        })}
+      </View>
+      {page === "lists" && listTab === "guides" ? <GuidesLibrary guides={ownGuides} onOpen={city => guide("you", city)} onExplore={openRank} /> : <>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 22, gap: 7, paddingBottom: 8 }}>
+          <Pill label={activeFilters ? `Filters · ${activeFilters}` : "Filters"} active={!!activeFilters} icon="options-outline" onPress={() => openFilters()} />
+          <Pill label={rankedOrder ? "Your ranking" : sortLabels[sort]} icon="swap-vertical-outline" onPress={() => setSheet("sort")} />
+          {sort === "niche" && <Pill label={nicheDirection === "desc" ? "High to low" : "Low to high"} icon={nicheDirection === "desc" ? "arrow-down-outline" : "arrow-up-outline"} onPress={() => setNicheDirection(value => value === "desc" ? "asc" : "desc")} />}
+          <Pill label="Distance" active={sort === "distance"} onPress={() => setSheet("distance")} />
+          <Pill label={filters.budget === null ? "Price" : filters.budget === 0 ? "Free" : `Up to $${filters.budget}`} active={filters.budget !== null} onPress={() => openFilters("Price")} />
+          <Pill label={nicheRange[0] === 0 && nicheRange[1] === 10 ? "Nicheness" : `Niche ${nicheRange[0]}–${nicheRange[1]}`} active={nicheRange[0] !== 0 || nicheRange[1] !== 10} onPress={() => openFilters("Nicheness")} />
         </ScrollView>
-        <View style={[s.between, s.pad, { marginBottom: 14 }]}>
-          <T style={s.tiny}>
-            {results.length} results{filters.bounds ? " · map area" : ""}
-          </T>
-          <View style={s.row}>
-            {(["Friends", "Everyone"] as const).map((a) => (
-              <Pressable
-                key={a}
-                accessibilityRole="button"
-                onPress={() => setAudience(a)}
-              >
-                <T
-                  style={[
-                    s.tiny,
-                    a === audience && {
-                      color: C.green,
-                      textDecorationLine: "underline",
-                    },
-                  ]}
-                >
-                  {a}
-                </T>
-              </Pressable>
-            ))}
-            <Icon
-              name={map ? "list-outline" : "map-outline"}
-              label={map ? "Show list" : "Show map"}
-              onPress={() => setMap(!map)}
-            />
-          </View>
+        <View style={[s.between, s.pad, { minHeight: 44 }]}>
+          <T style={s.tiny}>{results.length} places{filters.bounds ? " · map area" : ""}{page === "lists" && !listCity ? " · all cities" : ""}</T>
+          {!personalList && <Pressable accessibilityRole="button" accessibilityLabel={`Scores from ${audience}. Switch to ${audience === "Friends" ? "Everyone" : "Friends"}`} onPress={() => setAudience(value => value === "Friends" ? "Everyone" : "Friends")} style={[s.row, { minHeight: 44, gap: 4 }]}><T style={s.tiny}>{audience}</T><I name="chevron-down" size={12} color={C.muted} /></Pressable>}
         </View>
         <View style={s.pad}>
-          {map ? (
-            <View style={s.stack}>
-              <ExperienceMap
-                origin={searchOrigin}
-                onUserLocation={useMyLocation}
-                items={results}
-                selected={selected}
-                onSelect={setSelected}
-                onSearchArea={(bounds) => filter({ bounds })}
-                onResetArea={() => filter({ bounds: undefined })}
-              />
-              <T style={s.tiny}>
-                Distances from {searchOrigin ? "your location" : "Downtown SLO"} · check access before you go.
-              </T>
-              {results.some((e) => e.id === selected) && card(x)}
-            </View>
-          ) : (
-            results.map(card)
-          )}
-          {!results.length && (
-            <View style={s.empty}>
-              <I name="leaf-outline" size={35} color={C.green} />
-              <T style={s.heading}>
-                {page === "lists"
-                  ? "Your next story starts here."
-                  : !cityCatalog.length
-                    ? searchOrigin ? "No experiences nearby yet." : `No experiences in ${data.city} yet.`
-                    : "A little too specific?"}
-              </T>
-              <T style={[s.muted, { textAlign: "center" }]}>
-                {page === "lists"
-                  ? "Save or log an experience to see it here."
-                  : !cityCatalog.length
-                    ? "Explore San Luis Obispo while we add more cities."
-                    : "Try a wider area or a different budget."}
-              </T>
-              <Button
-                secondary
-                onPress={() => {
-                  clearFilters();
-                  if (!cityCatalog.length) selectCity("San Luis Obispo");
-                  nav("discover");
-                }}
-              >
-                {cityCatalog.length
-                  ? "Explore all experiences"
-                  : "Explore San Luis Obispo"}
-              </Button>
-            </View>
-          )}
-          {page === "lists" &&
-            listTab === "done" &&
-            data.preferences.length > 0 && (
-              <Button
-                onPress={() => {
-                  setData((d) => ({
-                    ...d,
-                    guide: d.preferences
-                      .filter((p) => p.rank !== null)
-                      .sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0))
-                      .map((p) => p.id),
-                  }));
-                  guide("you");
-                }}
-              >
-                Create my SLO guide
-              </Button>
-            )}
-          <View style={{ marginVertical: 18 }}>{teaser()}</View>
+          {page === "discover" && !searchOrigin && !sampleMode && <Button onPress={chooseCity}>Choose location</Button>}
+          {!!deviceLocation.locationError && <T accessibilityRole="alert" style={s.muted}>{deviceLocation.locationError}</T>}
+          {page === "discover" && !sampleMode && live.loading && <ActivityIndicator color={C.green} />}
+          {page === "discover" && !sampleMode && !!live.error && <View style={s.stack}><T accessibilityRole="alert" style={s.muted}>{live.error}</T><Button secondary onPress={live.retry}>Retry search</Button></View>}
+          {map ? <View style={s.stack}>
+            <ExperienceMap origin={searchOrigin ?? (sampleMode ? { lat: 35.28, lng: -120.6625 } : undefined)} userLocation={deviceLocation.position} onUserLocation={useMyLocation} items={results} selected={selected} onSelect={setSelected} onSearchArea={searchArea} onResetArea={() => filter({ bounds: undefined })} />
+            {results.some(e => e.id === selected) && card(x)}
+          </View> : results.map(card)}
+          {!results.length && !live.loading && !live.error && (sampleMode || !!searchOrigin || page === "lists") && <View style={s.empty}>
+            <I name="search-outline" size={30} color={C.muted} />
+            <T style={s.heading}>No places found</T>
+            <T style={[s.muted, { textAlign: "center" }]}>{page === "lists" && !listCatalog.length ? "Save or rank a place to add it here." : "Try another search or clear your filters."}</T>
+            <Button secondary onPress={clearFilters}>Clear filters</Button>
+          </View>}
+          <Pressable accessibilityRole="button" onPress={() => addPlace("save", filters.query)} style={[s.row, { minHeight: 52, justifyContent: "center", marginTop: 10 }]}><I name="add" size={18} color={C.green} /><T style={{ color: C.green, fontSize: 14 }}>Add a place</T></Pressable>
+          {!sampleMode && live.nextPageToken && <Button onPress={() => { void live.loadMore(); }}>{live.loading ? "Loading…" : "Load more"}</Button>}
         </View>
-      </>
-    );
+      </>}
+    </>;
   }
   function showActivityMap() {
     clearFilters();
+    if (x.lat != null && x.lng != null) { setSearchOrigin({ lat: x.lat, lng: x.lng }); setOriginLabel(x.venue); }
+    setSampleMode(x.provider !== "google");
     setMap(true);
     nav("discover");
     setSelected(x.id);
   }
   function activityDirections() {
+    if (x.provider === "google") { official(x.sourceUrl); return; }
     official(
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.venue + ", San Luis Obispo, California")}`,
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.venue + ", " + x.city)}`,
     );
   }
   function detailView() {
@@ -773,7 +659,7 @@ function Elsewhere() {
         personalScore={pref ? scores[x.id] : undefined}
         saved={data.saved.includes(x.id)}
         social={data.demoSocial ? demoReviews[x.id] : null}
-        niche={getNicheness(x.id)}
+        niche={nicheFor(x.id) ?? { score: null, label: "Not researched", reason: "We haven’t researched how niche this experience is yet." }}
         awareness={data.awareness[x.id]}
         note={pref?.note}
         again={pref?.again}
@@ -793,192 +679,30 @@ function Elsewhere() {
           }));
           notify("Thanks for sharing.");
         }}
-        onAddToGuide={
-          pref
-            ? () => {
-                setData((d) => ({
-                  ...d,
-                  guide: [...new Set([...d.guide, x.id])],
-                }));
-                notify("Added to your SLO guide.");
-              }
-            : undefined
-        }
+        onViewGuide={pref ? () => guide("you", x.city) : undefined}
       />
     );
   }
   function guideView() {
-    return (
-      <View style={[s.pad, s.stack]}>
-        <View style={s.between}>
-          <Icon name="arrow-back" label="Back" onPress={() => nav("friends")} />
-          <T style={s.eyebrow}>SAN LUIS OBISPO</T>
-          <Icon
-            name="share-outline"
-            label="Share guide"
-            onPress={() => setSheet("share")}
-          />
-        </View>
-        <Image
-          source={require("./assets/catalog/slo-hills.jpg")}
-          style={[s.photo, { height: 190, borderRadius: 20 }]}
-          accessibilityLabel="Sunlit San Luis Obispo hills"
-        />
-        <T style={s.tiny}>SLO scenery · Photo: Visit SLO</T>
-        <T style={s.serif}>
-          {owner === "you" ? "My SLO favorites." : "A slow weekend\nin SLO."}
-        </T>
-        <T style={s.muted}>
-          {owner === "you"
-            ? "Your picks, in your order"
-            : "A city guide by Emma"}
-        </T>
-        <View style={s.row}>
-          <Button
-            secondary
-            onPress={() => {
-              setData((d) => ({
-                ...d,
-                saved: [...new Set([...d.saved, ...guideIds])],
-              }));
-              notify("Guide experiences saved.");
-            }}
-          >
-            Save all
-          </Button>
-          <Button secondary onPress={() => setMap(!map)}>
-            {map ? "List" : "Map"}
-          </Button>
-        </View>
-        {map && (
-          <ExperienceMap
-            items={guideIds.map(byId)}
-            selected={selected}
-            onSelect={detail}
-          />
-        )}
-        <View>
-          {guideIds.map((id, i) => (
-            <View key={id}>
-              <View style={s.guideRow}>
-                <T style={s.rank}>{i + 1}</T>
-                <Pressable
-                  accessibilityRole="button"
-                  style={{ flex: 1 }}
-                  onPress={() => detail(id)}
-                >
-                  <T style={s.heading}>{byId(id).name}</T>
-                  <T style={s.tiny}>{priceLabel(byId(id))}</T>
-                </Pressable>
-                {owner === "you" ? (
-                  <View>
-                    <Icon
-                      name="arrow-up"
-                      label={`Move ${byId(id).name} up`}
-                      onPress={() => {
-                        if (i > 0)
-                          setData((d) => {
-                            const g = [...d.guide];
-                            [g[i - 1], g[i]] = [g[i], g[i - 1]];
-                            return { ...d, guide: g };
-                          });
-                      }}
-                    />
-                    <Icon
-                      name="close"
-                      label={`Remove ${byId(id).name} from guide`}
-                      onPress={() =>
-                        setData((d) => ({
-                          ...d,
-                          guide: d.guide.filter((v) => v !== id),
-                        }))
-                      }
-                    />
-                  </View>
-                ) : (
-                  <Icon
-                    name={
-                      data.saved.includes(id) ? "bookmark" : "bookmark-outline"
-                    }
-                    label={`Save ${byId(id).name}`}
-                    onPress={() => save(id)}
-                  />
-                )}
-              </View>
-              {owner === "you" && (
-                <TextInput
-                  accessibilityLabel={`Guide note for ${byId(id).name}`}
-                  placeholder="Why recommend it?"
-                  placeholderTextColor={C.muted}
-                  value={data.guideNotes[id] || ""}
-                  onChangeText={(text) =>
-                    setData((d) => ({
-                      ...d,
-                      guideNotes: { ...d.guideNotes, [id]: text },
-                    }))
-                  }
-                  style={[s.inputBox, { marginTop: 8 }]}
-                />
-              )}
-            </View>
-          ))}
-        </View>
-        {!guideIds.length && (
-          <T style={s.muted}>Log an experience, then add it to your guide.</T>
-        )}
-        <Button onPress={() => setSheet("share")}>Preview & copy guide</Button>
-      </View>
-    );
+    return <CityGuidePage key={`${owner}:${activeGuide?.key}`} guide={activeGuide} owner={guideOwner}
+      savedIds={data.saved} onBack={() => nav(guideReturnPage.current)}
+      onShare={() => setSheet("share")} onExperience={detail} onSave={save} />;
   }
   function profile() {
-    return (
-      <View style={[s.pad, s.stack]}>
-        <View style={[s.avatar, { width: 70, height: 70, borderRadius: 35 }]}>
-          <I name="person-outline" size={30} />
-        </View>
-        <T style={s.serif}>Your kind of{"\n"}good day.</T>
-        <View style={[s.row, { gap: 25 }]}>
-          {[
-            [data.preferences.length, "experiences"],
-            [data.saved.length, "want to try"],
-            [data.guide.length, "in your guide"],
-          ].map(([n, label]) => (
-            <View key={label}>
-              <T style={s.title}>{n}</T>
-              <T style={s.tiny}>{label}</T>
-            </View>
-          ))}
-        </View>
-        <T style={s.heading}>You’re into</T>
-        <View style={s.wrap}>
-          {VIBES.map((v) => (
-            <Pill
-              key={v}
-              label={v}
-              active={data.interests.includes(v)}
-              onPress={() =>
-                setData((d) => ({
-                  ...d,
-                  interests: d.interests.includes(v)
-                    ? d.interests.filter((z) => z !== v)
-                    : [...d.interests, v],
-                }))
-              }
-            />
-          ))}
-        </View>
-        <Button secondary onPress={() => guide("you")}>
-          My SLO guide
-        </Button>
-        <View style={s.separator} />
-        <Button secondary onPress={chooseCity}>
-          Search city
-        </Button>
-        <Button secondary onPress={() => setSheet("about")}>
-          About Elsewhere
-        </Button>
+    return <View style={[s.pad, s.stack]}>
+      <View style={[s.row, { paddingVertical: 16, gap: 16 }]}>
+        <Image source={require("./assets/profile/jaydon-beli.png")} accessibilityLabel="Your profile photo" style={{ width: 76, height: 76, borderRadius: 38 }} resizeMode="cover" />
+        <View><T style={s.title}>Jaydon</T><T style={s.muted}>@jaydonkc</T></View>
       </View>
-    );
+      <View style={[s.row, { paddingVertical: 16, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.line }]}>
+        {[[data.preferences.length, "Been", "done"], [data.saved.length, "Want to try", "saved"], [ownGuides.length, "Guides", "guides"]].map(([n, label, key]) => <Pressable key={key} accessibilityRole="button" accessibilityLabel={`${label}: ${n}`} onPress={() => { setListTab(String(key)); nav("lists"); }} style={{ flex: 1, alignItems: "center", gap: 4, minHeight: 48 }}><T style={s.title}>{n}</T><T style={s.tiny}>{label}</T></Pressable>)}
+      </View>
+      <Disclosure title="Interests" summary={data.interests.join(", ")}>
+        <View style={s.wrap}>{VIBES.map(v => <Pill key={v} label={v} active={data.interests.includes(v)} onPress={() => setData(d => ({ ...d, interests: d.interests.includes(v) ? d.interests.filter(z => z !== v) : [...d.interests, v] }))} />)}</View>
+      </Disclosure>
+      <Pressable accessibilityRole="button" onPress={chooseCity} style={[s.between, { minHeight: 48 }]}><T>Location</T><T style={s.muted}>{locationLabel} ›</T></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => setSheet("about")} style={[s.between, { minHeight: 48 }]}><T>About Elsewhere</T><I name="chevron-forward" color={C.muted} size={18} /></Pressable>
+    </View>;
   }
   function logView() {
     const opponent = session ? currentOpponent(session) : null,
@@ -997,7 +721,8 @@ function Elsewhere() {
         preferences: next,
         saved: d.saved.filter((id) => id !== x.id),
       }));
-      setSheet(null);
+      if (rankFromNav.current) { setListTab("done"); clearFilters(); setSort("for-you"); nav("lists"); }
+      else setSheet(null);
       notify(
         session.status === "placed"
           ? "Added to Been. Rankings updated."
@@ -1006,10 +731,10 @@ function Elsewhere() {
     }
     return (
       <>
-        <T style={s.muted}>{x.name}</T>
+        <T style={s.heading}>{x.venue}</T>
         {!session ? (
           <>
-            <T style={s.serif}>How was it?</T>
+            <T style={s.title}>How was it?</T>
             {(["liked", "okay", "disliked"] as Band[]).map((b, i) => (
               <Pressable
                 accessibilityRole="button"
@@ -1035,7 +760,7 @@ function Elsewhere() {
           </>
         ) : session.status === "active" && opponent ? (
           <>
-            <T style={s.serif}>Which did you{"\n"}enjoy more?</T>
+            <T style={s.title}>Which did you enjoy more?</T>
             <T style={s.tiny}>
               Comparison {session.compared + 1} of at most 5 ·{" "}
               {bands[session.band]}
@@ -1045,9 +770,8 @@ function Elsewhere() {
               onPress={() => answer("new")}
               style={s.choice}
             >
-              <T style={s.eyebrow}>THE ONE YOU JUST DID</T>
-              <T style={s.heading}>{x.name}</T>
-              <T style={s.muted}>{x.venue}</T>
+              <T style={s.heading}>{x.venue}</T>
+              <T style={s.tiny}>{x.activityType} · {x.city}</T>
             </Pressable>
             <T style={[s.tiny, { textAlign: "center" }]}>OR</T>
             <Pressable
@@ -1055,9 +779,8 @@ function Elsewhere() {
               onPress={() => answer("existing")}
               style={s.choice}
             >
-              <T style={s.eyebrow}>FROM YOUR LIST</T>
-              <T style={s.heading}>{byId(opponent).name}</T>
-              <T style={s.muted}>{byId(opponent).venue}</T>
+              <T style={s.heading}>{byId(opponent).venue}</T>
+              <T style={s.tiny}>{byId(opponent).activityType} · {byId(opponent).city}</T>
             </Pressable>
             <Button secondary onPress={() => answer("tie")}>
               About the same
@@ -1065,26 +788,18 @@ function Elsewhere() {
             <Button secondary onPress={() => answer("skip")}>
               Can’t compare
             </Button>
-            <T style={s.tiny}>
-              Choose based on personal enjoyment. Skipping never counts as a
-              dislike.
-            </T>
           </>
         ) : (
           <>
             <T style={s.serif}>
               {session.status === "placed"
-                ? "Found its place."
-                : "Save it for later."}
+                ? "Your score"
+                : "Rank later"}
             </T>
             {session.status === "placed" ? (
               <>
                 <T style={s.bigNumber}>{value?.toFixed(1)}</T>
                 <T style={s.muted}>Your enjoyment · {bands[session.band]}</T>
-                <T style={s.tiny}>
-                  Based on your rankings. Your score adjusts as you try more
-                  experiences.
-                </T>
               </>
             ) : (
               <T style={s.muted}>
@@ -1094,7 +809,7 @@ function Elsewhere() {
             )}
             <TextInput
               accessibilityLabel="Experience note"
-              placeholder="A note for your future self"
+              placeholder="Notes (optional)"
               placeholderTextColor={C.muted}
               multiline
               value={note}
@@ -1113,7 +828,7 @@ function Elsewhere() {
             <Button onPress={finish}>
               {session.status === "placed"
                 ? "Save to Been"
-                : "Save reaction · rank later"}
+                : "Save and rank later"}
             </Button>
             <Button secondary onPress={() => setSession(null)}>
               Change my reaction
@@ -1124,213 +839,124 @@ function Elsewhere() {
     );
   }
   function sheetView() {
-    if (sheet === "log") return logView();
-    if (sheet === "filters")
-      return (
-        <>
-          <T style={s.heading}>Budget per person</T>
-          <View style={s.wrap}>
-            {[null, 0, 15, 30, 50].map((v) => (
-              <Pill
-                key={String(v)}
-                label={v === null ? "Any" : v === 0 ? "Free" : `$${v}`}
-                active={filters.budget === v}
-                onPress={() => filter({ budget: v })}
-              />
-            ))}
-          </View>
-          <T style={s.tiny}>
-            Admission only; check extra costs on details. Unknown prices are
-            excluded by a budget limit.
-          </T>
-          <T style={s.heading}>Distance from {searchOrigin ? "your location" : "Downtown SLO"}</T>
-          <View style={s.wrap}>
-            {[null, 1, 3, 5, 10].map((v) => (
-              <Pill
-                key={String(v)}
-                label={v === null ? "Any" : `${v} mi`}
-                active={filters.radius === v}
-                onPress={() => filter({ radius: v })}
-              />
-            ))}
-          </View>
-          <T style={s.heading}>The mood</T>
-          <View style={s.wrap}>
-            {VIBES.map((v) => (
-              <Pill
-                key={v}
-                label={v}
-                active={filters.vibes.includes(v)}
-                onPress={() =>
-                  filter({
-                    vibes: filters.vibes.includes(v)
-                      ? filters.vibes.filter((z) => z !== v)
-                      : [...filters.vibes, v],
-                  })
-                }
-              />
-            ))}
-          </View>
-          <T style={s.heading}>Time to spend</T>
-          <View style={s.wrap}>
-            {[null, 60, 90, 180].map((v) => (
-              <Pill
-                key={String(v)}
-                label={v === null ? "Any" : `${v} min`}
-                active={filters.duration === v}
-                onPress={() => filter({ duration: v })}
-              />
-            ))}
-          </View>
-          <T style={s.tiny}>
-            Suggested durations · distances measured from {searchOrigin ? "your location" : "Downtown SLO"}.
-          </T>
-          <Button onPress={() => setSheet(null)}>
-            Show matching experiences
-          </Button>
-          <Button secondary onPress={clearFilters}>
-            Reset filters
-          </Button>
-        </>
-      );
-    if (sheet === "city")
-      return (
-        <>
-          <TextInput
-            accessibilityLabel="Search for a city"
-            value={cityQuery}
-            onChangeText={setCityQuery}
-            onSubmitEditing={() => selectCity(cityQuery)}
-            placeholder="Search for a city"
-            placeholderTextColor={C.muted}
-            returnKeyType="search"
-            style={s.inputBox}
-          />
-          <T style={s.tiny}>Searching in {data.city}</T>
-          {(!cityQuery.trim() ||
-            "san luis obispo".includes(cityQuery.trim().toLowerCase()) ||
-            cityQuery.trim().toLowerCase() === "slo") && (
-            <Pill
-              label="San Luis Obispo"
-              icon="location-outline"
-              active={data.city === "San Luis Obispo"}
-              onPress={() => selectCity("San Luis Obispo")}
-            />
-          )}
-          {!!cityQuery.trim() && (
-            <Button onPress={() => selectCity(cityQuery)}>
-              Search {cityQuery.trim()}
-            </Button>
-          )}
-          <T style={s.muted}>
-            Experiences are currently available in San Luis Obispo. More cities
-            to come.
-          </T>
-        </>
-      );
-    if (sheet === "niche") {
-      const niche = getNicheness(x.id);
-      return (
-        <>
-          <View style={[s.between, s.notice]}>
-            <View>
-              <T style={s.heading}>Nicheness</T>
-              <T style={s.muted}>Research estimate · SLO</T>
-            </View>
-            <T style={[s.bigNumber, { color: C.purple, fontSize: 46 }]}>
-              {niche.score.toFixed(1)}
-            </T>
-          </View>
-          <T style={s.heading}>{x.name}</T>
-          <T style={s.muted}>{niche.reason}</T>
-          <View style={s.notice}>
-            <T style={s.heading}>Familiar to under the radar</T>
-            <T style={s.muted}>
-              0 is a familiar staple. 10 is a specialist find. We look at travel
-              coverage, the audience, and how deliberately you seek it out.
-            </T>
-          </View>
-          <T style={s.tiny}>
-            An editorial estimate, separate from enjoyment and how new it is to
-            you.
-          </T>
-          <T style={s.heading}>Behind the estimate</T>
-          {niche.sources.map((source) => (
-            <Pressable
-              key={source.url}
-              accessibilityRole="link"
-              onPress={() => official(source.url)}
-              style={{ gap: 4, paddingVertical: 8 }}
-            >
-              <T style={{ color: C.green, fontFamily: fonts.medium }}>
-                {source.title} ↗
-              </T>
-              <T style={s.tiny}>{source.observation}</T>
-            </Pressable>
-          ))}
-          <T style={s.tiny}>
-            Researched {niche.checkedAt} · {niche.confidence} confidence
-          </T>
-          <Button onPress={() => setSheet(null)}>Got it</Button>
-        </>
-      );
+    if (sheet === "rank") {
+      const query = rankQuery.trim().toLocaleLowerCase();
+      const matchesQuery = catalog.filter(e => `${e.venue} ${e.city} ${e.activityType}`.toLocaleLowerCase().includes(query));
+      const remote = rankSearchQuery === rankQuery.trim() ? rankSearch.items : [];
+      const choices = [...new Map([...matchesQuery, ...remote].map(e => [e.id, e])).values()]
+        .sort((a, b) => Number(done.has(a.id)) - Number(done.has(b.id)) || Number(data.saved.includes(b.id)) - Number(data.saved.includes(a.id)));
+      return <>
+        <View style={[s.search, { marginHorizontal: 0, marginBottom: 0 }]}>
+          <I name="search-outline" color={C.muted} />
+          <TextInput accessibilityLabel="Search places to rank" placeholder="Search places" placeholderTextColor={C.muted} value={rankQuery} onChangeText={setRankQuery} onSubmitEditing={() => setRankSearchQuery(rankQuery.trim())} returnKeyType="search" style={s.input} />
+          {!!rankQuery && <Icon name="close" label="Clear rank search" onPress={() => { setRankQuery(""); setRankSearchQuery(""); }} />}
+        </View>
+        {rankSearch.loading && <ActivityIndicator color={C.green} />}
+        {!!rankSearch.error && <T accessibilityRole="alert" style={s.muted}>{rankSearch.error}</T>}
+        {choices.map(e => <Pressable key={e.id} accessibilityRole="button" accessibilityLabel={`Rank ${e.venue}`} onPress={() => log(e.id, true)} style={[s.between, { minHeight: 72, borderBottomWidth: 1, borderBottomColor: C.line, paddingVertical: 12 }]}>
+          <View style={{ flex: 1, gap: 4 }}><T style={{ fontFamily: fonts.medium }}>{e.venue}</T><T style={s.tiny}>{e.city} · {done.has(e.id) ? "Been" : data.saved.includes(e.id) ? "Want to try" : e.activityType}</T>{e.provider === "google" && <PlaceAttribution item={e} />}</View><I name={done.has(e.id) ? "checkmark-circle-outline" : "add-circle-outline"} color={C.green} size={25} />
+        </Pressable>)}
+        {!choices.length && !rankSearch.loading && <T style={s.muted}>No places found.</T>}
+        {livePlacesEnabled && !searchOrigin && <Button secondary onPress={chooseCity}>Choose search location</Button>}
+        <Button secondary onPress={() => addPlace("rank", rankQuery)}>Add a place</Button>
+      </>;
     }
-    if (sheet === "about")
-      return (
-        <>
-          <T style={s.serif}>Find your kind of good day.</T>
-          <T style={s.muted}>
-            Save things you want to try, rank what you’ve done, and share your
-            favorite corners of a city.
-          </T>
-          <T style={s.heading}>About the data</T>
-          <T style={s.muted}>
-            Activity details come from official venue and destination sources.
-            Nicheness is an editorial research estimate.
-          </T>
-          <T style={s.muted}>
-            This preview uses example profiles, friend activity, and community
-            scores. Your own lists, rankings, and notes are saved on this
-            device.
-          </T>
-          <View style={s.between}>
-            <View style={{ flex: 1 }}>
-              <T>Example social data</T>
-              <T style={s.tiny}>Show friends and community score examples</T>
-            </View>
-            <Switch
-              value={data.demoSocial}
-              onValueChange={(value) =>
-                setData((d) => ({ ...d, demoSocial: value }))
-              }
-              trackColor={{ true: "#608451", false: C.line }}
-              thumbColor={C.green}
-            />
-          </View>
-          {!data.preferences.length && (
-            <Button
-              secondary
-              onPress={() => {
-                setData((d) => ({ ...d, preferences: seed }));
-                notify("Three example visits added.");
-              }}
-            >
-              Add example visits
-            </Button>
-          )}
-          <T style={s.tiny}>
-            Example visits let you explore comparison rankings with an empty
-            list.
-          </T>
-          <Button onPress={() => setSheet(null)}>Back to exploring</Button>
-        </>
-      );
+    if (sheet === "add-experience") return <>
+      {([["name", "Place name"], ["city", "City"], ["activityType", "Activity type (optional)"]] as const).map(([field, label]) => <TextInput key={field} accessibilityLabel={label} placeholder={label} placeholderTextColor={C.muted} value={customDraft[field]} onChangeText={value => setCustomDraft(d => ({ ...d, [field]: value }))} style={s.inputBox} />)}
+      <Disclosure title="Details" summary="Optional">
+        <TextInput accessibilityLabel="Description (optional)" placeholder="Description" placeholderTextColor={C.muted} value={customDraft.description} onChangeText={description => setCustomDraft(d => ({ ...d, description }))} multiline style={s.inputBox} />
+      </Disclosure>
+      {!!customError && <T accessibilityRole="alert" style={s.muted}>{customError}</T>}
+      <Button onPress={() => {
+        try {
+          const item = createCustomExperience(customDraft, `user:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+          setData(d => ({ ...d, customExperiences: [...d.customExperiences, item], saved: [...d.saved, item.id] }));
+          if (addIntent.current === "rank") log(item.id, true);
+          else { setListTab("saved"); clearFilters(); nav("lists"); notify("Added to Want to try."); }
+        } catch (e) { setCustomError(e instanceof Error ? e.message : "Check the place details."); }
+      }}>{addIntent.current === "rank" ? "Continue to rank" : "Save place"}</Button>
+    </>;
+    if (sheet === "log") return logView();
+    if (sheet === "distance") return <>
+      <T style={s.muted}>From {searchOrigin ? originLabel : "Downtown SLO"}</T>
+      <Button onPress={() => { setSort("distance"); setSheet(null); }}>Nearest first</Button>
+      <Button secondary onPress={() => { void deviceLocation.locate(point => { useMyLocation(point); setSort("distance"); }); }}>{deviceLocation.locating ? "Locating…" : "Current location"}</Button>
+      {!!deviceLocation.locationError && <T accessibilityRole="alert" style={s.muted}>{deviceLocation.locationError}</T>}
+      <Button secondary onPress={chooseCity}>Change location</Button>
+      <T style={s.tiny}>Distance in miles, measured in a straight line.</T>
+    </>;
+    if (sheet === "sort") return <>
+      {(Object.entries(sortLabels) as [DiscoverySort, string][]).filter(([value]) => !personalList || value !== "for-you").map(([value, label]) => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: sort === value || (rankedOrder && value === "enjoyment") }} onPress={() => { setSort(value); setSheet(null); }} style={[s.between, { minHeight: 52 }]}>
+        <T>{personalList && value === "enjoyment" ? "Your ranking" : label}</T>{(sort === value || (rankedOrder && value === "enjoyment")) && <I name="checkmark" color={C.green} />}
+      </Pressable>)}
+    </>;
+    if (sheet === "filters") return <View style={{ gap: 0 }}>
+      <Disclosure title="Sort by" summary={personalList && (draftSort === "for-you" || draftSort === "enjoyment") ? "Your ranking" : sortLabels[draftSort]}>
+        <View style={s.wrap}>{(Object.entries(sortLabels) as [DiscoverySort, string][]).filter(([value]) => !personalList || value !== "for-you").map(([value, label]) => <Pill key={value} label={personalList && value === "enjoyment" ? "Your ranking" : label} active={draftSort === value || (personalList && draftSort === "for-you" && value === "enjoyment")} onPress={() => setDraftSort(value)} />)}</View>
+      </Disclosure>
+      {page === "lists" && <Disclosure title="City" summary={draftListCity ? guideCityName(listCatalog.find(e => cityKey(e.city) === draftListCity)?.city ?? draftListCity) : "All cities"} initiallyOpen={filterSection === "City"}>
+        <Pill label="All cities" active={!draftListCity} onPress={() => setDraftListCity(null)} />
+        {[...new Map(listCatalog.filter(e => e.city.trim()).map(e => [cityKey(e.city), guideCityName(e.city)])).entries()].map(([key, label]) => <Pill key={key} label={label} active={draftListCity === key} onPress={() => setDraftListCity(key)} />)}
+      </Disclosure>}
+      <Disclosure title="Nicheness" summary={draftNiche[0] === 0 && draftNiche[1] === 10 ? "Any" : `${draftNiche[0]}–${draftNiche[1]}`} initiallyOpen={filterSection === "Nicheness"}>
+        <FilterSlider label="Minimum nicheness" value={draftNiche[0]} minimum={0} maximum={10} display={String(draftNiche[0])} left="Mainstream" right="Niche" onChange={value => setDraftNiche(([_, max]) => [value, Math.max(value, max)])} />
+        <FilterSlider label="Maximum nicheness" value={draftNiche[1]} minimum={0} maximum={10} display={String(draftNiche[1])} left="Mainstream" right="Niche" onChange={value => setDraftNiche(([min]) => [Math.min(min, value), value])} />
+      </Disclosure>
+      <Disclosure title="Price" summary={draftFilters.budget === null ? "Any" : draftFilters.budget === 0 ? "Free" : `Up to $${draftFilters.budget}`} initiallyOpen={filterSection === "Price"}>
+        <FilterSlider label="Maximum price per person" value={draftFilters.budget ?? 105} minimum={0} maximum={105} step={5} display={draftFilters.budget === null ? "Any" : draftFilters.budget === 0 ? "Free" : `$${draftFilters.budget}`} left="Free" right="Any price" onChange={value => setDraftFilters({ ...draftFilters, budget: value === 105 ? null : value })} />
+        <T style={s.tiny}>Places with unknown prices are excluded when a limit is set.</T>
+      </Disclosure>
+      <Disclosure title="Duration" summary={draftFilters.duration === null ? "Any" : `${draftFilters.duration} min`}>
+        <FilterSlider label="Maximum duration" value={draftFilters.duration ?? 375} minimum={15} maximum={375} step={15} display={draftFilters.duration === null ? "Any" : `${draftFilters.duration} min`} left="15 min" right="Any duration" onChange={value => setDraftFilters({ ...draftFilters, duration: value === 375 ? null : value })} />
+      </Disclosure>
+      <Disclosure title="Good for" summary={draftFilters.vibes.join(", ") || "Any"}>
+        <View style={s.wrap}>{VIBES.map(v => <Pill key={v} label={v} active={draftFilters.vibes.includes(v)} onPress={() => setDraftFilters({ ...draftFilters, vibes: draftFilters.vibes.includes(v) ? draftFilters.vibes.filter(z => z !== v) : [...draftFilters.vibes, v] })} />)}</View>
+      </Disclosure>
+    </View>;
+    if (sheet === "city")
+      return <>
+        <Button onPress={() => { void deviceLocation.locate(useMyLocation); }}>{deviceLocation.locating ? "Locating…" : "Use my location"}</Button>
+        {!!deviceLocation.locationError && <T accessibilityRole="alert" style={s.muted}>{deviceLocation.locationError}</T>}
+        <TextInput accessibilityLabel="Search for a city" value={cityQuery} onChangeText={setCityQuery} placeholder="City, region, or country…" placeholderTextColor={C.muted} style={s.inputBox} />
+        {cityLoading && <ActivityIndicator color={C.green} />}
+        {!!cityError && <T accessibilityRole="alert" style={s.muted}>{cityError}</T>}
+        {cities.map(city => <Pill key={city.id} label={city.label} icon="location-outline" onPress={() => { void pickCity(city); }} />)}
+        {livePlacesEnabled && <PlaceAttribution />}
+        {livePlacesEnabled && cityQuery.trim().length >= 2 && !cityLoading && !cityError && !cities.length && <T style={s.muted}>No matching cities. Try adding the country or region.</T>}
+        {(!cityQuery.trim() || /slo|san|luis|obispo/i.test(cityQuery)) && <Button secondary onPress={() => selectCity("San Luis Obispo")}>San Luis Obispo</Button>}
+        {!livePlacesEnabled && !!cityQuery.trim() && !/slo|san|luis|obispo/i.test(cityQuery) && <T style={s.muted}>No matching cities.</T>}
+      </>;
+    if (sheet === "niche") {
+      const niche = nicheFor(x.id);
+      return <>
+        <View style={s.between}><T style={[s.heading, { flex: 1 }]}>{x.venue}</T><T style={{ color: C.green, fontFamily: fonts.bold, fontSize: 40 }}>{niche?.score.toFixed(1) ?? "—"}</T></View>
+        <T style={s.muted}>0 is mainstream. 10 is little-known or specialized.</T>
+        {!niche && <T style={s.muted}>No score yet.</T>}
+        {!!niche && <Disclosure title="About this score">
+          <T style={s.muted}>{niche.reason}</T>
+          {niche.sources.map(source => <Pressable key={source.url} accessibilityRole="link" onPress={() => official(source.url)} style={{ gap: 4, paddingVertical: 8 }}><T style={{ color: C.green, fontFamily: fonts.medium }}>{source.title} ↗</T><T style={s.tiny}>{source.observation}</T></Pressable>)}
+          <T style={s.tiny}>Researched {niche.checkedAt} · {niche.confidence} confidence</T>
+        </Disclosure>}
+        <Disclosure title="Had you heard of it?" summary={data.awareness[x.id] === "yes" ? "Yes" : data.awareness[x.id] === "no" ? "No" : undefined}>
+          <T style={s.tiny}>Before finding it on Elsewhere.</T>
+          <View style={s.wrap}>{([["yes", "Yes"], ["no", "No"], ["unsure", "Not sure"]] as const).map(([value, label]) => <Pill key={value} label={label} active={data.awareness[x.id] === value} onPress={() => setData(d => ({ ...d, awareness: { ...d.awareness, [x.id]: value } }))} />)}</View>
+        </Disclosure>
+      </>;
+    }
+    if (sheet === "about") return <>
+      <T style={s.heading}>Data & privacy</T>
+      <T style={s.muted}>This preview includes example profiles, visits, and community scores. Your lists, rankings, and notes are saved on this device.</T>
+      <T style={s.muted}>Place details use official sources or Google Maps. Nicheness scores are based on editorial research into awareness and specialization, separately from enjoyment.</T>
+      <Disclosure title="Recommendations">
+        <T style={s.muted}>For you uses your interests, ranking history, and available friend and community scores, with a mix of activity types.</T>
+        <View style={s.between}><T style={{ flex: 1 }}>Example social scores</T><Switch accessibilityLabel="Example social scores" value={data.demoSocial} onValueChange={value => setData(d => ({ ...d, demoSocial: value }))} trackColor={{ true: "#608451", false: C.line }} thumbColor={C.green} /></View>
+      </Disclosure>
+    </>;
     if (sheet === "experience-share") {
-      const text = `${x.name}\n${x.venue} · San Luis Obispo\n${x.sourceUrl}`;
+      const text = `${x.venue}\n${x.city}\n${x.sourceUrl}`;
       return (
         <>
           <T style={s.serif}>{x.name}</T>
-          <T style={s.muted}>A good find is better shared.</T>
           <T selectable style={[s.notice, s.muted]}>
             {text}
           </T>
@@ -1374,28 +1000,16 @@ function Elsewhere() {
           <Button secondary onPress={() => official(x.sourceUrl)}>
             Visit website ↗
           </Button>
-          {done.has(x.id) && (
-            <Button
-              secondary
-              onPress={() => {
-                setData((d) => ({
-                  ...d,
-                  guide: [...new Set([...d.guide, x.id])],
-                }));
-                setSheet(null);
-                notify("Added to your SLO guide.");
-              }}
-            >
-              Add to my city guide
-            </Button>
-          )}
+          {done.has(x.id) && <Button secondary onPress={() => guide("you", x.city)}>
+            View my {x.city} guide
+          </Button>}
         </>
       );
     if (sheet === "share")
       return (
         <>
           <T style={s.muted}>
-            Only the guide’s order, guide notes and official links are included.
+            Share your city ranking and official activity links.
             Your private visit notes stay out.
           </T>
           <T selectable style={[s.notice, s.muted]}>
@@ -1416,19 +1030,12 @@ function Elsewhere() {
           </Button>
         </>
       );
-    if (sheet === "activity")
-      return (
-        <>
-          <T style={s.muted}>From your circle</T>
-          {teaser()}
-        </>
-      );
     return (
       <>
         {[
           ["you", "person-outline", "Your profile"],
           ["lists", "bookmark-outline", "Your experiences"],
-          ["friends", "people-outline", "Friends & guides"],
+          ["friends", "people-outline", "Feed"],
         ].map(([p, icon, label]) => (
           <Pressable
             accessibilityRole="button"
@@ -1459,50 +1066,32 @@ function Elsewhere() {
     <View style={s.outer}>
       <StatusBar style="light" />
       <SafeAreaView style={s.app} edges={["top", "bottom"]}>
-        {page !== "detail" && (
-          <View style={s.header}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Elsewhere home"
-              onPress={() => nav("discover")}
-            >
-              <T style={s.wordmark}>elsewhere</T>
-            </Pressable>
-            <View style={{ flexDirection: "row" }}>
-              <Icon
-                name="location-outline"
-                label="Change city"
-                onPress={chooseCity}
-              />
-              <Icon
-                name="notifications-outline"
-                label="Activity"
-                onPress={() => setSheet("activity")}
-              />
-              <Icon
-                name="menu-outline"
-                label="Open menu"
-                onPress={() => setSheet("menu")}
-              />
-            </View>
+        {page !== "detail" && page !== "guide" && page !== "leaderboard" && <View style={s.header}>
+          <View style={[s.row, { flex: 1, gap: 4 }]}>
+            {page === "discover" && <Icon name="arrow-back" label="Back to feed" onPress={() => nav("friends")} />}
+            <T style={page === "friends" ? s.wordmark : s.title}>{page === "friends" ? "elsewhere" : page === "lists" ? "My lists" : page === "you" ? "Profile" : "Discover"}</T>
           </View>
-        )}
-        {(page === "discover" || page === "lists") && (
+          {page === "discover" ? <Pressable accessibilityRole="button" accessibilityLabel="Change city" onPress={chooseCity} style={[s.row, { minHeight: 44, maxWidth: "48%", gap: 4 }]}><T numberOfLines={1} style={[s.tiny, { flexShrink: 1 }]}>{locationLabel}</T><I name="chevron-down" size={13} color={C.muted} /></Pressable> : page === "lists" && listTab !== "guides" ? <Pressable accessibilityRole="button" accessibilityLabel="Filter lists by city" onPress={() => openFilters("City")} style={[s.row, { minHeight: 44, maxWidth: "45%", gap: 4 }]}><T style={s.tiny} numberOfLines={1}>{listCity ? guideCityName(listCatalog.find(e => cityKey(e.city) === listCity)?.city ?? listCity) : "All cities"}</T><I name="chevron-down" size={13} color={C.muted} /></Pressable> : <Icon name="search-outline" label="Discover places" onPress={() => { setMap(false); nav("discover"); }} />}
+        </View>}
+        {(page === "discover" || (page === "lists" && listTab !== "guides")) && (
           <View style={s.search}>
             <I name="search-outline" color={C.muted} />
             <TextInput
               accessibilityLabel="Search experiences"
-              placeholder="Search experiences, places…"
+              placeholder="Search places"
               placeholderTextColor={C.muted}
               value={filters.query}
-              onChangeText={(query) => filter({ query })}
+              onChangeText={(query) => { filter({ query }); if (!query) setSubmittedQuery(""); }}
+              returnKeyType="search"
+              onSubmitEditing={() => setSubmittedQuery(filters.query.trim())}
               style={s.input}
             />
+            {!sampleMode && <Icon name="arrow-forward" label="Search places" onPress={() => setSubmittedQuery(filters.query.trim())} />}
             {!!filters.query && (
               <Icon
                 name="close"
                 label="Clear search"
-                onPress={() => filter({ query: "" })}
+                onPress={() => { filter({ query: "" }); setSubmittedQuery(""); }}
               />
             )}
           </View>
@@ -1515,16 +1104,17 @@ function Elsewhere() {
             onSave={save}
             onRank={log}
             onGuide={guide}
+            onDiscover={() => { setMap(false); nav("discover"); }}
             onNearby={() => {
               setMap(true);
               nav("discover");
             }}
           />
-        ) : (
+        ) : page === "leaderboard" ? <LeaderboardPage guides={ownGuides} showExamples={data.demoSocial} onGuide={guide} onYou={() => nav("you")} /> : (
         <ScrollView
           ref={scroll}
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 28 }}
+          contentContainerStyle={{ paddingBottom: page === "discover" || (page === "lists" && listTab !== "guides") ? 84 : 28 }}
           keyboardShouldPersistTaps="handled"
         >
           {page === "discover" || page === "lists" ? (
@@ -1538,33 +1128,15 @@ function Elsewhere() {
           ) : null}
         </ScrollView>
         )}
+        {(page === "discover" || (page === "lists" && listTab !== "guides")) && <Pressable accessibilityRole="button" accessibilityLabel={map ? "View list" : "View map"} onPress={() => setMap(value => !value)} style={s.mapToggle}><I name={map ? "list-outline" : "map-outline"} color={C.greenInk} size={18} /><T style={{ color: C.greenInk, fontFamily: fonts.bold, fontSize: 13 }}>{map ? "View list" : "View map"}</T></Pressable>}
         <View style={s.nav}>
-          {[
-            ["discover", "compass-outline", "Discover"],
-            ["lists", "bookmark-outline", "My lists"],
-            ["friends", "people-outline", "Friends"],
-            ["you", "person-outline", "You"],
-          ].map(([p, icon, label]) => {
-            const active =
-              page === p ||
-              (page === "detail" &&
-                p === (returnPage.current === "guide" ? "friends" : returnPage.current)) ||
-              (page === "guide" && p === "friends");
-            return (
-              <Pressable
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={label}
-                key={p}
-                onPress={() => nav(p as Page)}
-                style={[s.navItem, active && s.navSelected]}
-              >
-                <I name={icon} size={22} color={active ? C.coral : C.muted} />
-                <T style={[s.navLabel, active && { color: C.coral }]}>
-                  {label}
-                </T>
-              </Pressable>
-            );
+          {[["friends", "newspaper-outline", "Feed"], ["lists", "list-outline", "My lists"], ["rank", "add", "Rank"], ["leaderboard", "podium-outline", "Leaderboard"], ["you", "person-outline", "You"]].map(([p, icon, label]) => {
+            const destination = page === "detail" ? returnPage.current === "guide" ? guideReturnPage.current : returnPage.current : page === "guide" ? guideReturnPage.current : page;
+            const active = p === destination || (p === "friends" && destination === "discover");
+            return <Pressable key={p} accessibilityRole={p === "rank" ? "button" : "tab"} accessibilityState={p === "rank" ? undefined : { selected: active }} accessibilityLabel={label} onPress={() => p === "rank" ? openRank() : nav(p as Page)} style={s.navItem}>
+              {p === "rank" ? <View style={s.rankAction}><I name="add" size={27} color={C.greenInk} /></View> : <I name={icon} size={23} color={active ? C.green : C.muted} />}
+              <T style={[s.navLabel, active && { color: C.green }]}>{label}</T>
+            </Pressable>;
           })}
         </View>
         {!!toast && (
@@ -1574,7 +1146,7 @@ function Elsewhere() {
         )}
         <BottomSheet
           visible={sheet !== null}
-          onClose={() => setSheet(null)}
+          onClose={closeSheet}
           style={s.sheet}
           contentBottomPadding={32}
         >
@@ -1582,11 +1154,14 @@ function Elsewhere() {
             <T style={s.heading}>
               {
                 {
-                  filters: "Make it your kind of day",
+                  "add-experience": "Add a place",
+                  rank: "Rank a place",
+                  distance: "Distance",
+                  sort: "Sort experiences",
+                  filters: "Filters",
                   log: "Your experience",
-                  niche: "How niche is it?",
-                  share: "Share a good day",
-                  activity: "Activity",
+                  niche: "Nicheness",
+                  share: "Share guide",
                   about: "About Elsewhere",
                   city: "Choose a city",
                   "experience-share": "Share this experience",
@@ -1598,7 +1173,7 @@ function Elsewhere() {
             <Icon
               name="close"
               label="Close dialog"
-              onPress={() => setSheet(null)}
+              onPress={closeSheet}
             />
           </View>
           <ScrollView
@@ -1607,6 +1182,10 @@ function Elsewhere() {
           >
             {sheetView()}
           </ScrollView>
+          {sheet === "filters" && <View style={[s.row, { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 24, borderTopWidth: 1, borderTopColor: C.line }]}>
+            <Pressable accessibilityRole="button" onPress={() => { setDraftFilters({ budget: null, radius: null, duration: null, vibes: [], query: filters.query }); setDraftNiche([0, 10]); setDraftSort("for-you"); setDraftListCity(null); }} style={{ flex: 1, minHeight: 48, justifyContent: "center" }}><T style={{ color: C.green }}>Clear all</T></Pressable>
+            <View style={{ flex: 2 }}><Button onPress={() => { setFilters(draftFilters); setNicheRange(draftNiche); setSort(draftSort); setListCity(draftListCity); setSheet(null); }}>Apply</Button></View>
+          </View>}
         </BottomSheet>
       </SafeAreaView>
     </View>

@@ -34,6 +34,14 @@ export interface RankingSession {
 
 export const MAX_RANKING_QUESTIONS = 5;
 
+/** Keep distinct positions ordered even when displayed scores round to a tie. */
+export function comparePreferences(a: Preference, b: Preference): number {
+  const bandOrder = { liked: 0, okay: 1, disliked: 2 };
+  if (a.rank === null || b.rank === null)
+    return a.rank === null ? b.rank === null ? 0 : 1 : -1;
+  return bandOrder[a.band] - bandOrder[b.band] || a.rank - b.rank;
+}
+
 /** Keep one vote per experience even when persisted input contains duplicates. */
 function uniquePreferences(preferences: readonly Preference[]): Preference[] {
   return [
@@ -49,6 +57,19 @@ function isPlaced(preference: Preference): boolean {
     Number.isFinite(preference.rank) &&
     preference.rank >= 1
   );
+}
+
+/** Global display positions preserve actual ties and leave pending visits blank. */
+export function rankPositions(preferences: readonly Preference[]): Record<string, number | null> {
+  const unique = uniquePreferences(preferences);
+  const positions: Record<string, number | null> = Object.fromEntries(unique.map(p => [p.id, null]));
+  const placed = unique.filter(isPlaced).sort(comparePreferences);
+  let position = 0;
+  placed.forEach((preference, index) => {
+    if (!index || comparePreferences(preference, placed[index - 1]) !== 0) position = index + 1;
+    positions[preference.id] = position;
+  });
+  return positions;
 }
 
 function orderedGroups(

@@ -36,7 +36,7 @@ export const NICHENESS_METHOD = {
   checkedAt: "2026-09-05",
   label: "Research estimate",
   description:
-    "How far an activity sits outside SLO’s usual visitor circuit, based on travel coverage, audience, and how deliberately you seek it out. Higher means more niche.",
+    "How little-known or specialized an experience is, estimated from tourism coverage, audience specialization, and deliberate discovery. Higher means less mainstream, not better liked.",
   caveat:
     "An editorial estimate, not a survey, review count, or measure of quality. Local regulars may know a place well. New to you is personal and separate.",
   weights: {
