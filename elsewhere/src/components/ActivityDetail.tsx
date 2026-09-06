@@ -13,7 +13,7 @@ export type ActivityDetailProps = {
   personalScore?: number | null;
   saved: boolean;
   social?: { friends: number; everyone: number; count: number } | null;
-  niche: { score: number; label: string; reason: string };
+  niche: { score: number; label: string; reason: string } | null;
   awareness?: string;
   note?: string;
   again?: boolean;
@@ -219,7 +219,7 @@ export default function ActivityDetail({
           <View style={d.inline}>
             <Ionicons name="time-outline" size={15} color={C.muted} />
             <Text style={d.metadataText}>
-              Allow ~{activity.durationMinutesSuggested} min
+              {activity.durationMinutesSuggested > 0 ? `Allow ~${activity.durationMinutesSuggested} min` : "Duration not added"}
             </Text>
           </View>
           <Text style={d.metadataDot}>·</Text>
@@ -259,7 +259,7 @@ export default function ActivityDetail({
           </Pressable>
         </View>
         <View style={d.actions}>
-          <Action icon="globe-outline" label="Website" onPress={onWebsite} />
+          {!!activity.sourceUrl && <Action icon="globe-outline" label="Website" onPress={onWebsite} />}
           <Action
             icon="navigate-outline"
             label="Directions"
@@ -290,7 +290,7 @@ export default function ActivityDetail({
         )}
       </View>
 
-      <Pressable
+      {niche && <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Nicheness ${niche.score.toFixed(1)} out of 10, ${niche.label}. View estimate details`}
         onPress={onNiche}
@@ -308,7 +308,7 @@ export default function ActivityDetail({
           <Ionicons name="chevron-forward" size={16} color={C.purple} />
         </View>
         <Text style={d.nicheReason}>{niche.reason}</Text>
-      </Pressable>
+      </Pressable>}
 
       <View style={d.section}>
         <Text style={d.sectionTitle} accessibilityRole="header">

@@ -1,3 +1,4 @@
+import { createCustomActivity } from "./src/core/customActivities";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,6 +29,7 @@ import * as Clipboard from "expo-clipboard";
 import { C, fonts, s } from "./src/theme";
 import {
   byId,
+  setCustomActivities,
   catalog,
   demoReviews,
   distance,
@@ -53,8 +55,9 @@ import FriendsPage, { GuideCover, type FriendsTab } from "./src/components/Guide
 import GuideDetail from "./src/components/GuideDetail";
 import { exampleGuides, type ExperienceGuide } from "./src/data/guides";
 import { demoFollows } from "./src/data/friends";
+import NichenessSlider from "./src/components/NichenessSlider";
 import DistanceSlider from "./src/components/DistanceSlider";
-import { distanceSliderLabel, PRICE_OPTIONS, priceFilterLabel } from "./src/core/filterOptions";
+import { nichenessSliderLabel, distanceSliderLabel, PRICE_OPTIONS, priceFilterLabel } from "./src/core/filterOptions";
 import { formatVisitDate, localDateKey, randomVisitDate } from "./src/core/visitDate";
 import { getNicheness } from "./src/data/nicheness";
 import { createPersonalGuide, isFavorite, saveRankedVisit, updateVisitDetails } from "./src/core/personal";
@@ -207,6 +210,7 @@ function Elsewhere() {
     [audience, setAudience] = useState<"Friends" | "Everyone">("Friends");
   const [mode, setMode] = useState("all"),
     [filters, setFilters] = useState<Filters>({
+      minNicheness: 0,
       budget: null,
       radius: null,
       duration: null,
@@ -290,6 +294,7 @@ function Elsewhere() {
   }
   function clearFilters() {
     setFilters({
+      minNicheness: 0,
       budget: null,
       radius: null,
       duration: null,
@@ -412,7 +417,7 @@ function Elsewhere() {
             ? scores[e.id] === null
               ? "Not fully ranked"
               : `You ${scores[e.id]?.toFixed(1)}`
-            : data.demoSocial
+            : data.demoSocial && demoReviews[e.id]
               ? `${audience} ${demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"].toFixed(1)}`
               : "Unrated"}
         </T>
@@ -462,12 +467,12 @@ function Elsewhere() {
           <T style={s.muted}>
             {e.vibes.join(" · ")}
             {"\n"}
-            {page === "lists" && listTab === "done" ? priceLevel(e) : priceLabel(e)} · ~{e.durationMinutesSuggested} min ·{" "}
-            {distance(e, searchOrigin)?.toFixed(1)} mi
+            {page === "lists" && listTab === "done" ? priceLevel(e) : priceLabel(e)}{e.durationMinutesSuggested > 0 ? ` · ~${e.durationMinutesSuggested} min` : ""}
+            {distance(e, searchOrigin) !== null ? ` · ${distance(e, searchOrigin)!.toFixed(1)} mi` : ""}
           </T>
           <View style={s.wrap}>
             {score(e)}
-            <Pressable
+            {!e.userCreated && <Pressable
               accessibilityRole="button"
               onPress={() => {
                 setSelected(e.id);
@@ -478,7 +483,7 @@ function Elsewhere() {
               <T style={s.nicheText}>
                 Niche {getNicheness(e.id).score.toFixed(1)}
               </T>
-            </Pressable>
+            </Pressable>}
           </View>
           {page === "lists" && listTab === "done" && (
             <>
@@ -745,7 +750,7 @@ function Elsewhere() {
         personalScore={pref ? scores[x.id] : undefined}
         saved={data.saved.includes(x.id)}
         social={data.demoSocial ? demoReviews[x.id] : null}
-        niche={getNicheness(x.id)}
+        niche={x.userCreated ? null : getNicheness(x.id)}
         awareness={data.awareness[x.id]}
         note={pref?.note}
         again={pref?.again}
@@ -1053,7 +1058,17 @@ function Elsewhere() {
       </>;
     }
 
-    if (sheet === "add-activity") return <ActivityPicker onSelect={log} />;
+    if (sheet === "add-activity") return <ActivityPicker city={data.city} onSelect={log} onCreate={(draft) => {
+      const existing = catalog.find((activity) =>
+        activity.name.toLowerCase() === draft.name.trim().toLowerCase() &&
+        activity.venue.toLowerCase() === draft.venue.trim().toLowerCase() &&
+        activity.city.toLowerCase() === draft.city.trim().toLowerCase());
+      if (existing) { log(existing.id); return; }
+      const activity = createCustomActivity(draft, `custom-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+      setCustomActivities([...(data.customActivities ?? []), activity]);
+      setData((current) => ({ ...current, customActivities: [...(current.customActivities ?? []), activity] }));
+      log(activity.id);
+    }} />;
     if (sheet === "log") return logView();
     if (sheet === "edit-visit")
       return (
@@ -1102,6 +1117,18 @@ function Elsewhere() {
               <T style={s.tiny}>1 mi</T>
               <T style={s.tiny}>Any distance</T>
             </View>
+          </View>
+          <View style={{ gap: 6 }}>
+            <View style={s.between}>
+              <T style={s.heading}>Nicheness</T>
+              <T style={{ color: C.green, fontFamily: fonts.medium }}>{nichenessSliderLabel(filters.minNicheness ?? 0)}</T>
+            </View>
+            <NichenessSlider value={filters.minNicheness ?? 0} onChange={(minNicheness) => filter({ minNicheness })} />
+            <View style={s.between}>
+              <T style={s.tiny}>Any</T>
+              <T style={s.tiny}>Most niche</T>
+            </View>
+            {(filters.minNicheness ?? 0) > 0 && <T style={s.tiny}>Activities without a nicheness estimate are excluded.</T>}
           </View>
           <T style={s.heading}>The mood</T>
           <View style={s.wrap}>
@@ -1178,6 +1205,7 @@ function Elsewhere() {
         </>
       );
     if (sheet === "niche") {
+      if (x.userCreated) return <T style={s.muted}>This activity does not have a nicheness estimate yet.</T>;
       const niche = getNicheness(x.id);
       return (
         <>
@@ -1325,9 +1353,9 @@ function Elsewhere() {
           <Button secondary onPress={showActivityMap}>
             View on map
           </Button>
-          <Button secondary onPress={() => official(x.sourceUrl)}>
+          {!!x.sourceUrl && <Button secondary onPress={() => official(x.sourceUrl)}>
             Visit website ↗
-          </Button>
+          </Button>}
           {done.has(x.id) && (
             <Button
               secondary

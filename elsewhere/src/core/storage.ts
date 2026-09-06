@@ -1,4 +1,5 @@
-import { catalog, VIBES } from "../data/catalog";
+import { parseCustomActivities } from "./customActivities";
+import { catalog, VIBES, type Experience } from "../data/catalog";
 import { Preference } from "./ranking";
 import { parseVisitDate, randomVisitDate } from "./visitDate";
 
@@ -14,6 +15,7 @@ export type OnboardingState = {
 
 export type Stored = {
   version: 2;
+  customActivities?: Experience[];
   sampleVisitDatesAdded: boolean;
   saved: string[];
   preferences: Preference[];
@@ -49,12 +51,12 @@ export function createFreshState(): Stored {
   };
 }
 
-const validIds = new Set(catalog.map((entry) => entry.id));
+const builtInIds = new Set(catalog.filter((entry) => !entry.userCreated).map((entry) => entry.id));
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === "string"))] : [];
-const ids = (value: unknown) => strings(value).filter((id) => validIds.has(id));
+
 const interests = (value: unknown) => [...new Set(strings(value)
   .map((vibe) => vibe === "Hangout" ? "Community" : vibe)
   .filter((vibe) => VIBES.includes(vibe)))];
@@ -77,11 +79,15 @@ export function parseStoredState(raw: string | null): Stored {
       !["interests", "complete"].includes(onboarding.step as string))) {
     throw new Error("Unrecognized onboarding data");
   }
+  const customActivities = parseCustomActivities(p.customActivities);
+  const validIds = new Set([...builtInIds, ...customActivities.map((activity) => activity.id)]);
+  const ids = (value: unknown) => strings(value).filter((id) => validIds.has(id));
   const fresh = createFreshState();
   const saved = ids(p.saved);
   const guide = ids(p.guide);
   return {
     ...fresh,
+    ...(customActivities.length ? { customActivities } : {}),
     saved,
     preferences: p.preferences.filter((r): r is Preference =>
       isRecord(r) && typeof r.id === "string" && validIds.has(r.id) &&
@@ -143,7 +149,7 @@ export function dismissFirstSavePrompt(data: Stored): Stored {
 }
 
 export function toggleSavedExperience(data: Stored, id: string): Stored {
-  if (!validIds.has(id)) return data;
+  if (!builtInIds.has(id) && !data.customActivities?.some((activity) => activity.id === id)) return data;
   const removing = data.saved.includes(id);
   return {
     ...(removing ? data : dismissFirstSavePrompt(data)),

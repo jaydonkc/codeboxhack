@@ -1,7 +1,9 @@
+import { getNicheness } from "./nicheness";
 import source from "./slo.json";
 import geocodes from "./geocodes.json";
 export type Experience = {
   id: string;
+  userCreated?: boolean;
   name: string;
   venue: string;
   activityType: string;
@@ -23,7 +25,7 @@ export type Experience = {
   locationNote: string;
   coordinateSource?: string;
 };
-export const catalog: Experience[] = source.experiences.map((x) => {
+const builtInCatalog: Experience[] = source.experiences.map((x) => {
   const point = geocodes.points.find((p) => p.id === x.id);
   return point
     ? {
@@ -38,6 +40,11 @@ export const catalog: Experience[] = source.experiences.map((x) => {
       }
     : x;
 });
+// Shared lookup used by cards, guides, and ranking views. Refresh on restore/create.
+export let catalog: Experience[] = [...builtInCatalog];
+export function setCustomActivities(activities: Experience[]) {
+  catalog = [...builtInCatalog, ...activities];
+}
 export const byId = (id: string) => catalog.find((x) => x.id === id)!;
 export const VIBES = [
   "Relax",
@@ -99,6 +106,7 @@ export type MapBounds = {
   west: number;
 };
 export type Filters = {
+  minNicheness?: number;
   budget: number | null;
   radius: number | null;
   duration: number | null;
@@ -109,6 +117,7 @@ export type Filters = {
 export function matches(x: Experience, f: Filters, origin?: SearchOrigin): boolean {
   const dist = distance(x, origin);
   return (
+    (!(f.minNicheness && f.minNicheness > 0) || (!x.userCreated && getNicheness(x.id).score >= f.minNicheness)) &&
     (f.budget === null || (x.priceUSD !== null && x.priceUSD <= f.budget)) &&
     (!f.bounds ||
       (x.lat !== null &&
@@ -118,7 +127,7 @@ export function matches(x: Experience, f: Filters, origin?: SearchOrigin): boole
         x.lng >= f.bounds.west &&
         x.lng <= f.bounds.east)) &&
     (f.radius === null || (dist !== null && dist <= f.radius)) &&
-    (f.duration === null || x.durationMinutesSuggested <= f.duration) &&
+    (f.duration === null || (x.durationMinutesSuggested > 0 && x.durationMinutesSuggested <= f.duration)) &&
     (!f.vibes.length || x.vibes.some((v) => f.vibes.includes(v))) &&
     `${x.name} ${x.venue} ${x.activityType} ${x.vibes.join(" ")}`
       .toLocaleLowerCase()

@@ -1,3 +1,4 @@
+import { setCustomActivities } from "../data/catalog";
 import { useEffect, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createFreshState, createStateWriter, parseStoredState, STORAGE_KEY } from "../core/storage";
@@ -18,6 +19,7 @@ export function useStoredData() {
       .then((raw) => {
         const restored = parseStoredState(raw);
         if (active) {
+          setCustomActivities(restored.customActivities ?? []);
           setData(restored);
           setLoaded(true);
         }

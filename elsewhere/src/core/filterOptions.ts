@@ -21,3 +21,7 @@ export function distanceFromSlider(value: number): number | null {
 export function distanceSliderLabel(value: number | null): string {
   return value === null ? "Any distance" : `${value} ${value === 1 ? "mile" : "miles"}`;
 }
+
+export function nichenessSliderLabel(value: number): string {
+  return value === 0 ? "Any nicheness" : `${value.toFixed(1)}+ out of 10`;
+}
