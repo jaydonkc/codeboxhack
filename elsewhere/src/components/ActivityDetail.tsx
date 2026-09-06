@@ -18,6 +18,7 @@ export type ActivityDetailProps = {
   onShare: () => void;
   onMore: () => void;
   onRank: () => void;
+  onEditVisit: () => void;
   onSave: () => void;
   onWebsite: () => void;
   onDirections: () => void;
@@ -157,6 +158,7 @@ export default function ActivityDetail({
   onShare,
   onMore,
   onRank,
+  onEditVisit,
   onSave,
   onWebsite,
   onDirections,
@@ -341,7 +343,7 @@ export default function ActivityDetail({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Edit your visit"
-              onPress={onRank}
+              onPress={onEditVisit}
               style={d.textButton}
             >
               <Text style={d.link}>Edit</Text>

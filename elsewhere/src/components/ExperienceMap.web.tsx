@@ -22,6 +22,7 @@ export default function ExperienceMap({
   onSearchArea,
   onResetArea,
   origin,
+  initialCenter,
   onUserLocation,
   height = 390,
   compact = false,
@@ -50,8 +51,9 @@ export default function ExperienceMap({
       }).setView(
         point?.lat != null && point?.lng != null
           ? [point.lat, point.lng]
+          : initialCenter ? [initialCenter.lat, initialCenter.lng]
           : origin ? [origin.lat, origin.lng] : [35.298, -120.69],
-        compact ? 15 : 12,
+        compact || initialCenter ? 15 : 12,
       );
       map.current = m;
       markers.current = L.layerGroup().addTo(m);

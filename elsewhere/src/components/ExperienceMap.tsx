@@ -11,6 +11,7 @@ export type MapProps = {
   onSearchArea?: (b: MapBounds) => void;
   onResetArea?: () => void;
   origin?: SearchOrigin;
+  initialCenter?: SearchOrigin;
   onUserLocation?: (point: SearchOrigin) => void;
   height?: number;
   compact?: boolean;
@@ -28,6 +29,7 @@ export default function ExperienceMap({
   onSearchArea,
   onResetArea,
   origin,
+  initialCenter,
   onUserLocation,
   height = 390,
   compact = false,
@@ -55,7 +57,9 @@ export default function ExperienceMap({
                 latitudeDelta: 0.012,
                 longitudeDelta: 0.015,
               }
-            : origin ? { ...initial, latitude: origin.lat, longitude: origin.lng } : initial
+            : initialCenter
+              ? { ...initial, latitude: initialCenter.lat, longitude: initialCenter.lng, latitudeDelta: 0.012, longitudeDelta: 0.015 }
+              : origin ? { ...initial, latitude: origin.lat, longitude: origin.lng } : initial
         }
         userInterfaceStyle="dark"
         scrollEnabled={!compact}
