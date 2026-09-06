@@ -3,10 +3,7 @@ import {
   ActivityIndicator,
   BackHandler,
   Image,
-  KeyboardAvoidingView,
   Linking,
-  Modal,
-  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -35,12 +32,16 @@ import {
   distance,
   Experience,
   Filters,
+  SearchOrigin,
   icons,
   matches,
   priceLabel,
   VIBES,
 } from "./src/data/catalog";
 import ExperienceMap from "./src/components/ExperienceMap";
+import BottomSheet from "./src/components/Sheet";
+import ActivityDetail from "./src/components/ActivityDetail";
+import { getNicheness } from "./src/data/nicheness";
 import {
   answerRanking,
   Band,
@@ -55,7 +56,17 @@ import {
 
 type Page = "discover" | "lists" | "friends" | "you" | "detail" | "guide";
 type Sheet =
-  "filters" | "trip" | "log" | "niche" | "share" | "menu" | "activity" | null;
+  | "filters"
+  | "city"
+  | "log"
+  | "niche"
+  | "share"
+  | "menu"
+  | "activity"
+  | "about"
+  | "experience-share"
+  | "experience-actions"
+  | null;
 type Stored = {
   version: 1;
   saved: string[];
@@ -65,9 +76,7 @@ type Stored = {
   guideNotes: Record<string, string>;
   interests: string[];
   demoSocial: boolean;
-  visiting: boolean;
-  start: string;
-  end: string;
+  city: string;
 };
 const fresh: Stored = {
   version: 1,
@@ -78,15 +87,20 @@ const fresh: Stored = {
   guideNotes: {},
   interests: ["Relax", "Creative"],
   demoSocial: true,
-  visiting: true,
-  start: "2026-09-11",
-  end: "2026-09-13",
+  city: "San Luis Obispo",
 };
 const seed: Preference[] = [
   { id: "sloma", band: "liked", rank: 1, again: true },
   { id: "leaning-pine-arboretum", band: "liked", rank: 2, again: true },
   { id: "downtown-creek-walk", band: "liked", rank: 3, again: true },
 ];
+const friendGuideNotes: Record<string, string> = {
+  sloma: "Start with a little art beside Mission Plaza.",
+  "leaning-pine-arboretum": "A quiet garden detour when you want to slow down.",
+  "downtown-farmers-market": "Make Thursday evening your downtown night.",
+  "anam-cre-pottery":
+    "Book a class and make something to remember the trip by.",
+};
 const bands: Record<Band, string> = {
   liked: "Liked it",
   okay: "It was okay",
@@ -210,9 +224,7 @@ function Elsewhere() {
     [note, setNote] = useState(""),
     [again, setAgain] = useState(false);
   const [toast, setToast] = useState(""),
-    [start, setStart] = useState(fresh.start),
-    [end, setEnd] = useState(fresh.end),
-    [dateError, setDateError] = useState("");
+    [cityQuery, setCityQuery] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     scroll = useRef<ScrollView>(null),
     returnPage = useRef<Page>("discover"),
@@ -236,6 +248,10 @@ function Elsewhere() {
             setData({
               ...fresh,
               ...p,
+              city:
+                typeof p.city === "string" && p.city.trim()
+                  ? p.city
+                  : fresh.city,
               saved: p.saved.filter(validId),
               guide: (p.guide || []).filter(validId),
               preferences: p.preferences.filter(
@@ -247,7 +263,7 @@ function Elsewhere() {
             });
         }
       })
-      .catch(() => notify("Could not load this device’s saved demo."))
+      .catch(() => notify("Could not load your saved experiences."))
       .finally(() => {
         if (live) setHydrated(true);
       });
@@ -262,7 +278,7 @@ function Elsewhere() {
         .then(() =>
           AsyncStorage.setItem("elsewhere-demo-v1", JSON.stringify(data)),
         )
-        .catch(() => notify("Changes could not be saved on this device."));
+        .catch(() => notify("Could not save your changes. Please try again."));
   }, [data, hydrated]);
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -318,11 +334,26 @@ function Elsewhere() {
       query: "",
     });
   }
-  function trip() {
-    setStart(data.start);
-    setEnd(data.end);
-    setDateError("");
-    setSheet("trip");
+  function chooseCity() {
+    setCityQuery("");
+    setSheet("city");
+  }
+  const [searchOrigin, setSearchOrigin] = useState<SearchOrigin>();
+  const locationLabel = searchOrigin ? "Near you" : data.city;
+  function useMyLocation(point: SearchOrigin) {
+    setSearchOrigin(point);
+    filter({ bounds: undefined, radius: filters.radius ?? 25 });
+  }
+  function selectCity(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setSearchOrigin(undefined);
+    const city = /^(slo|san luis obispo)$/i.test(trimmed)
+      ? "San Luis Obispo"
+      : trimmed;
+    setData((d) => ({ ...d, city }));
+    filter({ bounds: undefined });
+    setSheet(null);
   }
   function log(id: string) {
     setSelected(id);
@@ -356,7 +387,11 @@ function Elsewhere() {
       ? `Fits your ${v.join(" + ").toLowerCase()} interests`
       : "A different kind of day to try";
   }
-  let results = catalog.filter((e) => matches(e, filters));
+  const cityCatalog = catalog.filter(
+    (e) =>
+      searchOrigin ? (distance(e, searchOrigin) ?? Infinity) <= (filters.radius ?? 25) : e.city.replace(/^Near /, "").toLowerCase() === data.city.toLowerCase(),
+  );
+  let results = cityCatalog.filter((e) => matches(e, filters, searchOrigin));
   if (page === "lists")
     results = results.filter((e) =>
       listTab === "saved" ? data.saved.includes(e.id) : done.has(e.id),
@@ -376,11 +411,11 @@ function Elsewhere() {
   );
   const guideIds = owner === "you" ? data.guide : demoGuide;
   const guideText =
-    `${owner === "you" ? "My SLO favorites" : "A slow weekend in SLO (sample guide)"}\nSan Luis Obispo\n\n` +
+    `${owner === "you" ? "My SLO favorites" : "A slow weekend in SLO"}\nSan Luis Obispo\n\n` +
     guideIds
       .map(
         (id, i) =>
-          `${i + 1}. ${byId(id).name}\n${owner === "you" ? data.guideNotes[id] || "" : "Sample recommendation"}\n${byId(id).sourceUrl}`,
+          `${i + 1}. ${byId(id).name}\n${owner === "you" ? data.guideNotes[id] || "" : friendGuideNotes[id] || ""}\n${byId(id).sourceUrl}`,
       )
       .join("\n\n");
   const official = (url: string) =>
@@ -397,7 +432,7 @@ function Elsewhere() {
               ? "Not fully ranked"
               : `You ${scores[e.id]?.toFixed(1)}`
             : data.demoSocial
-              ? `${audience} ${demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"].toFixed(1)} · demo`
+              ? `${audience} ${demoReviews[e.id][audience === "Friends" ? "friends" : "everyone"].toFixed(1)}`
               : "Unrated"}
         </T>
       </View>
@@ -446,7 +481,7 @@ function Elsewhere() {
             {e.vibes.join(" · ")}
             {"\n"}
             {priceLabel(e)} · ~{e.durationMinutesSuggested} min ·{" "}
-            {distance(e)?.toFixed(1)} mi
+            {distance(e, searchOrigin)?.toFixed(1)} mi
           </T>
           <View style={s.wrap}>
             {score(e)}
@@ -458,13 +493,15 @@ function Elsewhere() {
               }}
               style={s.niche}
             >
-              <T style={s.nicheText}>Niche: unknown</T>
+              <T style={s.nicheText}>
+                Niche {getNicheness(e.id).score.toFixed(1)}
+              </T>
             </Pressable>
           </View>
           <View style={s.reason}>
             <I name="sparkles-outline" color={C.coral} size={15} />
             <T style={[s.tiny, { flex: 1 }]}>{reason(e)}</T>
-            {!done.has(e.id) && <T style={s.tiny}>Not logged yet</T>}
+            {!done.has(e.id) && <T style={s.tiny}>New to you</T>}
           </View>
           {page === "lists" && listTab === "done" && (
             <Button secondary onPress={() => log(e.id)}>
@@ -488,7 +525,7 @@ function Elsewhere() {
           </View>
           <View>
             <T style={s.eyebrow}>A FRIEND’S CITY GUIDE</T>
-            <T style={s.tiny}>Emma · sample profile</T>
+            <T style={s.tiny}>Emma · 4 picks</T>
           </View>
         </View>
         <T style={s.serif}>A slow weekend{"\n"}in SLO.</T>
@@ -527,10 +564,8 @@ function Elsewhere() {
         </View>
         <View style={[s.between, s.pad]}>
           <T style={s.title}>Experiences</T>
-          <Pressable accessibilityRole="button" onPress={trip}>
-            <T style={s.tiny}>
-              {data.visiting ? "Visiting SLO" : "Around SLO"} ⌄
-            </T>
+          <Pressable accessibilityRole="button" onPress={chooseCity}>
+            <T style={s.tiny}>{locationLabel} ⌄</T>
           </Pressable>
         </View>
         <View style={s.tabs}>
@@ -587,9 +622,9 @@ function Elsewhere() {
             onPress={() => setSheet("filters")}
           />
           <Pill
-            label="San Luis Obispo"
+            label={locationLabel}
             icon="location-outline"
-            onPress={trip}
+            onPress={chooseCity}
           />
           <Pill
             label={
@@ -638,6 +673,8 @@ function Elsewhere() {
           {map ? (
             <View style={s.stack}>
               <ExperienceMap
+                origin={searchOrigin}
+                onUserLocation={useMyLocation}
                 items={results}
                 selected={selected}
                 onSelect={setSelected}
@@ -645,8 +682,7 @@ function Elsewhere() {
                 onResetArea={() => filter({ bounds: undefined })}
               />
               <T style={s.tiny}>
-                Approximate positions · straight-line miles from Downtown SLO.
-                Pins may mark an area, not an entrance.
+                Distances from {searchOrigin ? "your location" : "Downtown SLO"} · check access before you go.
               </T>
               {results.some((e) => e.id === selected) && card(x)}
             </View>
@@ -659,21 +695,28 @@ function Elsewhere() {
               <T style={s.heading}>
                 {page === "lists"
                   ? "Your next story starts here."
-                  : "A little too specific?"}
+                  : !cityCatalog.length
+                    ? searchOrigin ? "No experiences nearby yet." : `No experiences in ${data.city} yet.`
+                    : "A little too specific?"}
               </T>
               <T style={[s.muted, { textAlign: "center" }]}>
                 {page === "lists"
                   ? "Save or log an experience to see it here."
-                  : "Try fewer filters. Unknown prices do not pass a budget limit."}
+                  : !cityCatalog.length
+                    ? "Explore San Luis Obispo while we add more cities."
+                    : "Try a wider area or a different budget."}
               </T>
               <Button
                 secondary
                 onPress={() => {
                   clearFilters();
+                  if (!cityCatalog.length) selectCity("San Luis Obispo");
                   nav("discover");
                 }}
               >
-                Explore all experiences
+                {cityCatalog.length
+                  ? "Explore all experiences"
+                  : "Explore San Luis Obispo"}
               </Button>
             </View>
           )}
@@ -700,109 +743,67 @@ function Elsewhere() {
       </>
     );
   }
+  function showActivityMap() {
+    clearFilters();
+    setMap(true);
+    nav("discover");
+    setSelected(x.id);
+  }
+  function activityDirections() {
+    official(
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.venue + ", San Luis Obispo, California")}`,
+    );
+  }
   function detailView() {
     const pref = data.preferences.find((p) => p.id === x.id);
     return (
-      <View style={[s.pad, s.stack]}>
-        <View style={s.between}>
-          <Icon
-            name="arrow-back"
-            label="Back to results"
-            onPress={() => nav(returnPage.current)}
+      <ActivityDetail
+        key={x.id}
+        activity={x}
+        map={
+          <ExperienceMap
+            items={[x]}
+            selected={x.id}
+            onSelect={showActivityMap}
+            compact
+            height={166}
           />
-          <T style={s.eyebrow}>{x.activityType}</T>
-          <Icon
-            name="bookmark-outline"
-            label="Save experience"
-            onPress={() => save(x.id)}
-          />
-        </View>
-        <T style={s.serif}>{x.name}</T>
-        <T style={s.muted}>
-          {x.venue} · {x.city}
-        </T>
-        <View style={s.wrap}>
-          {score(x)}
-          <Pill label="Niche: unknown" onPress={() => setSheet("niche")} />
-        </View>
-        <T>{x.description}</T>
-        <View style={s.notice}>
-          <T style={s.heading}>{priceLabel(x)}</T>
-          <T style={s.muted}>{x.priceNote}</T>
-          <T style={s.tiny}>
-            Allow ~{x.durationMinutesSuggested} min · planning estimate
-          </T>
-        </View>
-        <T style={s.heading}>Before you go</T>
-        <T style={s.muted}>{x.scheduleNote}</T>
-        <T style={s.muted}>{x.locationNote}</T>
-        <Button secondary onPress={() => official(x.sourceUrl)}>
-          Official details ↗
-        </Button>
-        <Button
-          secondary
-          onPress={() =>
-            official(
-              `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(x.venue + ", San Luis Obispo, California")}`,
-            )
-          }
-        >
-          Find access & directions ↗
-        </Button>
-        <T style={s.tiny}>Checked {x.checkedAt}. Availability is not live.</T>
-        <Button onPress={() => log(x.id)}>
-          {pref ? "Your enjoyment · rerank" : "I did this · rank it"}
-        </Button>
-        <Button secondary onPress={() => save(x.id)}>
-          {data.saved.includes(x.id) ? "Saved to Want to try" : "Want to try"}
-        </Button>
-        {!data.awareness[x.id] ? (
-          <View style={[s.notice, { gap: 12 }]}>
-            <T style={s.heading}>A quick familiarity check</T>
-            <T style={s.muted}>
-              Before seeing it here, had you heard of this experience?
-            </T>
-            <View style={s.wrap}>
-              {[
-                ["yes", "Yes"],
-                ["no", "No"],
-                ["unsure", "Not sure"],
-              ].map(([v, label]) => (
-                <Pill
-                  key={v}
-                  label={label}
-                  onPress={() => {
-                    setData((d) => ({
-                      ...d,
-                      awareness: { ...d.awareness, [x.id]: v },
-                    }));
-                    notify("Answer saved locally. Niche score stays unknown.");
-                  }}
-                />
-              ))}
-            </View>
-            <T style={s.tiny}>Optional · demo response, not a city survey</T>
-          </View>
-        ) : (
-          <T style={s.muted}>
-            Familiarity answer saved. One answer isn’t enough for a niche score.
-          </T>
-        )}
-        {pref && (
-          <Button
-            secondary
-            onPress={() => {
-              setData((d) => ({
-                ...d,
-                guide: [...new Set([...d.guide, x.id])],
-              }));
-              notify("Added to your city guide.");
-            }}
-          >
-            Add to my city guide
-          </Button>
-        )}
-      </View>
+        }
+        personalScore={pref ? scores[x.id] : undefined}
+        saved={data.saved.includes(x.id)}
+        social={data.demoSocial ? demoReviews[x.id] : null}
+        niche={getNicheness(x.id)}
+        awareness={data.awareness[x.id]}
+        note={pref?.note}
+        again={pref?.again}
+        onBack={() => nav(returnPage.current)}
+        onShare={() => setSheet("experience-share")}
+        onMore={() => setSheet("experience-actions")}
+        onRank={() => log(x.id)}
+        onSave={() => save(x.id)}
+        onWebsite={() => official(x.sourceUrl)}
+        onDirections={activityDirections}
+        onMap={showActivityMap}
+        onNiche={() => setSheet("niche")}
+        onAwareness={(value) => {
+          setData((d) => ({
+            ...d,
+            awareness: { ...d.awareness, [x.id]: value },
+          }));
+          notify("Thanks for sharing.");
+        }}
+        onAddToGuide={
+          pref
+            ? () => {
+                setData((d) => ({
+                  ...d,
+                  guide: [...new Set([...d.guide, x.id])],
+                }));
+                notify("Added to your SLO guide.");
+              }
+            : undefined
+        }
+      />
     );
   }
   function guideView() {
@@ -828,8 +829,8 @@ function Elsewhere() {
         </T>
         <T style={s.muted}>
           {owner === "you"
-            ? "Your chosen order · saved on this device"
-            : "Emma’s guide · sample recommendations"}
+            ? "Your picks, in your order"
+            : "A city guide by Emma"}
         </T>
         <View style={s.row}>
           <Button
@@ -969,53 +970,12 @@ function Elsewhere() {
           My SLO guide
         </Button>
         <View style={s.separator} />
-        <T style={s.heading}>Demo settings</T>
-        <View style={s.between}>
-          <View style={{ flex: 1 }}>
-            <T>Sample social scores</T>
-            <T style={s.tiny}>Illustrative friends and community ratings</T>
-          </View>
-          <Switch
-            value={data.demoSocial}
-            onValueChange={(v) => setData((d) => ({ ...d, demoSocial: v }))}
-            trackColor={{ true: "#608451", false: C.line }}
-            thumbColor={C.green}
-          />
-        </View>
-        <Button
-          secondary
-          onPress={() => {
-            if (data.preferences.length) {
-              notify("Reset the local demo first to load sample history.");
-              return;
-            }
-            setData((d) => ({ ...d, preferences: seed }));
-            notify("Three sample visits loaded.");
-          }}
-        >
-          Load sample ranking history
+        <Button secondary onPress={chooseCity}>
+          Search city
         </Button>
-        <T style={s.tiny}>
-          Adds three sample past visits so you can try comparisons immediately.
-        </T>
-        <Button
-          secondary
-          onPress={() => {
-            setData({ ...fresh, demoSocial: false });
-            clearFilters();
-            notify("Local demo reset.");
-          }}
-        >
-          Reset local demo
+        <Button secondary onPress={() => setSheet("about")}>
+          About Elsewhere
         </Button>
-        <View style={s.notice}>
-          <T style={s.muted}>
-            Real activities. Personal saves, rankings and responses stay on this
-            device. No accounts, live community scores, booking inventory or
-            cloud sync yet.
-          </T>
-          <T style={s.tiny}>Expo SDK 57</T>
-        </View>
       </View>
     );
   }
@@ -1071,17 +1031,6 @@ function Elsewhere() {
                 <T style={s.heading}>{bands[b]}</T>
               </Pressable>
             ))}
-            {!data.preferences.length && (
-              <Button
-                secondary
-                onPress={() => {
-                  setData((d) => ({ ...d, preferences: seed }));
-                  notify("Three sample visits loaded for comparison demos.");
-                }}
-              >
-                Try with sample history
-              </Button>
-            )}
           </>
         ) : session.status === "active" && opponent ? (
           <>
@@ -1132,9 +1081,8 @@ function Elsewhere() {
                 <T style={s.bigNumber}>{value?.toFixed(1)}</T>
                 <T style={s.muted}>Your enjoyment · {bands[session.band]}</T>
                 <T style={s.tiny}>
-                  Derived from your comparisons. Scores can shift as the list
-                  grows. Fewer than three entries in a reaction band means a
-                  provisional score.
+                  Based on your rankings. Your score adjusts as you try more
+                  experiences.
                 </T>
               </>
             ) : (
@@ -1194,7 +1142,7 @@ function Elsewhere() {
             Admission only; check extra costs on details. Unknown prices are
             excluded by a budget limit.
           </T>
-          <T style={s.heading}>Distance from Downtown SLO</T>
+          <T style={s.heading}>Distance from {searchOrigin ? "your location" : "Downtown SLO"}</T>
           <View style={s.wrap}>
             {[null, 1, 3, 5, 10].map((v) => (
               <Pill
@@ -1234,8 +1182,7 @@ function Elsewhere() {
             ))}
           </View>
           <T style={s.tiny}>
-            Approximate durations and straight-line distance. Not a live
-            availability check.
+            Suggested durations · distances measured from {searchOrigin ? "your location" : "Downtown SLO"}.
           </T>
           <Button onPress={() => setSheet(null)}>
             Show matching experiences
@@ -1245,106 +1192,202 @@ function Elsewhere() {
           </Button>
         </>
       );
-    if (sheet === "trip")
+    if (sheet === "city")
       return (
         <>
-          <T style={s.serif}>A little time{"\n"}in SLO.</T>
-          <Image
-            source={require("./assets/catalog/slo-hills.jpg")}
-            style={[s.photo, { borderRadius: 18 }]}
-            accessibilityLabel="San Luis Obispo hills"
+          <TextInput
+            accessibilityLabel="Search for a city"
+            value={cityQuery}
+            onChangeText={setCityQuery}
+            onSubmitEditing={() => selectCity(cityQuery)}
+            placeholder="Search for a city"
+            placeholderTextColor={C.muted}
+            returnKeyType="search"
+            style={s.inputBox}
           />
-          <T style={s.tiny}>Photo: Visit SLO</T>
+          <T style={s.tiny}>Searching in {data.city}</T>
+          {(!cityQuery.trim() ||
+            "san luis obispo".includes(cityQuery.trim().toLowerCase()) ||
+            cityQuery.trim().toLowerCase() === "slo") && (
+            <Pill
+              label="San Luis Obispo"
+              icon="location-outline"
+              active={data.city === "San Luis Obispo"}
+              onPress={() => selectCity("San Luis Obispo")}
+            />
+          )}
+          {!!cityQuery.trim() && (
+            <Button onPress={() => selectCity(cityQuery)}>
+              Search {cityQuery.trim()}
+            </Button>
+          )}
           <T style={s.muted}>
-            San Luis Obispo is the first destination. Your interests stay with
+            Experiences are currently available in San Luis Obispo. More cities
+            to come.
+          </T>
+        </>
+      );
+    if (sheet === "niche") {
+      const niche = getNicheness(x.id);
+      return (
+        <>
+          <View style={[s.between, s.notice]}>
+            <View>
+              <T style={s.heading}>Nicheness</T>
+              <T style={s.muted}>Research estimate · SLO</T>
+            </View>
+            <T style={[s.bigNumber, { color: C.purple, fontSize: 46 }]}>
+              {niche.score.toFixed(1)}
+            </T>
+          </View>
+          <T style={s.heading}>{x.name}</T>
+          <T style={s.muted}>{niche.reason}</T>
+          <View style={s.notice}>
+            <T style={s.heading}>Familiar to under the radar</T>
+            <T style={s.muted}>
+              0 is a familiar staple. 10 is a specialist find. We look at travel
+              coverage, the audience, and how deliberately you seek it out.
+            </T>
+          </View>
+          <T style={s.tiny}>
+            An editorial estimate, separate from enjoyment and how new it is to
             you.
           </T>
-          <View style={s.wrap}>
-            <Pill
-              label="I’m visiting"
-              active={data.visiting}
-              onPress={() => setData((d) => ({ ...d, visiting: true }))}
-            />
-            <Pill
-              label="I live nearby"
-              active={!data.visiting}
-              onPress={() => setData((d) => ({ ...d, visiting: false }))}
+          <T style={s.heading}>Behind the estimate</T>
+          {niche.sources.map((source) => (
+            <Pressable
+              key={source.url}
+              accessibilityRole="link"
+              onPress={() => official(source.url)}
+              style={{ gap: 4, paddingVertical: 8 }}
+            >
+              <T style={{ color: C.green, fontFamily: fonts.medium }}>
+                {source.title} ↗
+              </T>
+              <T style={s.tiny}>{source.observation}</T>
+            </Pressable>
+          ))}
+          <T style={s.tiny}>
+            Researched {niche.checkedAt} · {niche.confidence} confidence
+          </T>
+          <Button onPress={() => setSheet(null)}>Got it</Button>
+        </>
+      );
+    }
+    if (sheet === "about")
+      return (
+        <>
+          <T style={s.serif}>Find your kind of good day.</T>
+          <T style={s.muted}>
+            Save things you want to try, rank what you’ve done, and share your
+            favorite corners of a city.
+          </T>
+          <T style={s.heading}>About the data</T>
+          <T style={s.muted}>
+            Activity details come from official venue and destination sources.
+            Nicheness is an editorial research estimate.
+          </T>
+          <T style={s.muted}>
+            This preview uses example profiles, friend activity, and community
+            scores. Your own lists, rankings, and notes are saved on this
+            device.
+          </T>
+          <View style={s.between}>
+            <View style={{ flex: 1 }}>
+              <T>Example social data</T>
+              <T style={s.tiny}>Show friends and community score examples</T>
+            </View>
+            <Switch
+              value={data.demoSocial}
+              onValueChange={(value) =>
+                setData((d) => ({ ...d, demoSocial: value }))
+              }
+              trackColor={{ true: "#608451", false: C.line }}
+              thumbColor={C.green}
             />
           </View>
-          <T style={s.heading}>Trip dates</T>
-          <TextInput
-            accessibilityLabel="Trip start date"
-            value={start}
-            onChangeText={setStart}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={C.muted}
-            style={s.inputBox}
-          />
-          <TextInput
-            accessibilityLabel="Trip end date"
-            value={end}
-            onChangeText={setEnd}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={C.muted}
-            style={s.inputBox}
-          />
-          {!!dateError && <T style={{ color: C.coral }}>{dateError}</T>}
+          {!data.preferences.length && (
+            <Button
+              secondary
+              onPress={() => {
+                setData((d) => ({ ...d, preferences: seed }));
+                notify("Three example visits added.");
+              }}
+            >
+              Add example visits
+            </Button>
+          )}
           <T style={s.tiny}>
-            Planning dates only. Check official sources for opening hours and
-            scheduled sessions.
+            Example visits let you explore comparison rankings with an empty
+            list.
+          </T>
+          <Button onPress={() => setSheet(null)}>Back to exploring</Button>
+        </>
+      );
+    if (sheet === "experience-share") {
+      const text = `${x.name}\n${x.venue} · San Luis Obispo\n${x.sourceUrl}`;
+      return (
+        <>
+          <T style={s.serif}>{x.name}</T>
+          <T style={s.muted}>A good find is better shared.</T>
+          <T selectable style={[s.notice, s.muted]}>
+            {text}
           </T>
           <Button
-            onPress={() => {
-              const valid = (v: string) =>
-                /^\d{4}-\d{2}-\d{2}$/.test(v) &&
-                !Number.isNaN(Date.parse(v)) &&
-                new Date(v).toISOString().slice(0, 10) === v;
-              if (!valid(start) || !valid(end) || end < start) {
-                setDateError(
-                  "Use valid YYYY-MM-DD dates, with end after start.",
-                );
-                return;
+            onPress={async () => {
+              try {
+                await Clipboard.setStringAsync(text);
+                setSheet(null);
+                notify("Experience copied.");
+              } catch {
+                notify("Couldn’t copy. Select the text above.");
               }
-              setData((d) => ({ ...d, start, end }));
-              setSheet(null);
-              notify("Trip dates saved.");
             }}
           >
-            Save trip dates
+            Copy experience
           </Button>
         </>
       );
-    if (sheet === "niche")
+    }
+    if (sheet === "experience-actions")
       return (
         <>
-          <View style={s.niche}>
-            <T style={[s.nicheText, { fontSize: 25, fontFamily: fonts.bold }]}>
-              Unknown
-            </T>
-          </View>
-          <T>{x.name}</T>
-          <T style={s.muted}>
-            Nicheness asks how familiar this experience is to the local
-            community. We don’t have enough awareness responses to measure it
-            yet.
-          </T>
-          <T style={s.heading}>It’s not the number of reviews.</T>
-          <T style={s.muted}>
-            We ask whether people had heard of it, then estimate the unfamiliar
-            share. At least 30 valid local responses and a supported baseline
-            are proposed before showing a measured score.
-          </T>
-          <View style={s.notice}>
-            <T style={s.muted}>
-              Enjoyment: did you like it?{"\n"}Nicheness: do locals know it?
-              {"\n"}New to you: have you done it?
-            </T>
-          </View>
-          <T style={s.tiny}>
-            This demo saves awareness answers on your device. It doesn’t
-            simulate a city-wide survey.
-          </T>
-          <Button onPress={() => setSheet(null)}>Got it</Button>
+          <T style={s.heading}>{x.name}</T>
+          <Button onPress={() => log(x.id)}>
+            {done.has(x.id) ? "Edit your ranking" : "Rank this experience"}
+          </Button>
+          <Button
+            secondary
+            onPress={() => {
+              save(x.id);
+              setSheet(null);
+            }}
+          >
+            {data.saved.includes(x.id)
+              ? "Remove from Want to try"
+              : "Save to Want to try"}
+          </Button>
+          <Button secondary onPress={showActivityMap}>
+            View on map
+          </Button>
+          <Button secondary onPress={() => official(x.sourceUrl)}>
+            Visit website ↗
+          </Button>
+          {done.has(x.id) && (
+            <Button
+              secondary
+              onPress={() => {
+                setData((d) => ({
+                  ...d,
+                  guide: [...new Set([...d.guide, x.id])],
+                }));
+                setSheet(null);
+                notify("Added to your SLO guide.");
+              }}
+            >
+              Add to my city guide
+            </Button>
+          )}
         </>
       );
     if (sheet === "share")
@@ -1370,16 +1413,12 @@ function Elsewhere() {
           >
             Copy guide text
           </Button>
-          <T style={s.tiny}>
-            Copy-and-paste sharing works now. Hosted guide links and friend
-            accounts come with the backend.
-          </T>
         </>
       );
     if (sheet === "activity")
       return (
         <>
-          <T style={s.muted}>Sample activity</T>
+          <T style={s.muted}>From your circle</T>
           {teaser()}
         </>
       );
@@ -1400,8 +1439,11 @@ function Elsewhere() {
             <T>{label}</T>
           </Pressable>
         ))}
-        <Button secondary onPress={trip}>
-          Plan a SLO visit
+        <Button secondary onPress={chooseCity}>
+          Change city
+        </Button>
+        <Button secondary onPress={() => setSheet("about")}>
+          About Elsewhere
         </Button>
       </>
     );
@@ -1416,32 +1458,34 @@ function Elsewhere() {
     <View style={s.outer}>
       <StatusBar style="light" />
       <SafeAreaView style={s.app} edges={["top", "bottom"]}>
-        <View style={s.header}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Elsewhere home"
-            onPress={() => nav("discover")}
-          >
-            <T style={s.wordmark}>elsewhere</T>
-          </Pressable>
-          <View style={{ flexDirection: "row" }}>
-            <Icon
-              name="calendar-outline"
-              label="Plan your trip"
-              onPress={trip}
-            />
-            <Icon
-              name="notifications-outline"
-              label="Activity"
-              onPress={() => setSheet("activity")}
-            />
-            <Icon
-              name="menu-outline"
-              label="Open menu"
-              onPress={() => setSheet("menu")}
-            />
+        {page !== "detail" && (
+          <View style={s.header}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Elsewhere home"
+              onPress={() => nav("discover")}
+            >
+              <T style={s.wordmark}>elsewhere</T>
+            </Pressable>
+            <View style={{ flexDirection: "row" }}>
+              <Icon
+                name="location-outline"
+                label="Change city"
+                onPress={chooseCity}
+              />
+              <Icon
+                name="notifications-outline"
+                label="Activity"
+                onPress={() => setSheet("activity")}
+              />
+              <Icon
+                name="menu-outline"
+                label="Open menu"
+                onPress={() => setSheet("menu")}
+              />
+            </View>
           </View>
-        </View>
+        )}
         {(page === "discover" || page === "lists") && (
           <View style={s.search}>
             <I name="search-outline" color={C.muted} />
@@ -1484,11 +1528,10 @@ function Elsewhere() {
               </T>
               {teaser()}
               <View style={s.notice}>
-                <T style={s.eyebrow}>SAMPLE SOCIAL FEED</T>
-                <T>Emma shared a slow afternoon in SLO.</T>
-                <T style={s.tiny}>
-                  Sample identities and recommendations. No real friend data is
-                  connected.
+                <T style={s.eyebrow}>A GOOD DAY, SHARED</T>
+                <T>Emma’s picks for a slow afternoon in SLO.</T>
+                <T style={s.muted}>
+                  Art, a garden walk, and something handmade.
                 </T>
               </View>
               <Button secondary onPress={() => guide("you")}>
@@ -1496,18 +1539,6 @@ function Elsewhere() {
               </Button>
             </View>
           )}
-          <T
-            style={[
-              s.tiny,
-              { textAlign: "center", paddingHorizontal: 22, marginTop: 18 },
-            ]}
-          >
-            Real SLO activities ·{" "}
-            {data.demoSocial
-              ? "Sample social scores"
-              : "No live community ratings"}
-            {"\n"}Personal changes stay on this device
-          </T>
         </ScrollView>
         <View style={s.nav}>
           {[
@@ -1542,46 +1573,42 @@ function Elsewhere() {
             <T style={{ color: C.greenInk, fontSize: 14 }}>{toast}</T>
           </View>
         )}
-        <Modal
+        <BottomSheet
           visible={sheet !== null}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setSheet(null)}
+          onClose={() => setSheet(null)}
+          style={s.sheet}
+          contentBottomPadding={32}
         >
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={s.backdrop}
+          <View style={s.sheetHeader}>
+            <T style={s.heading}>
+              {
+                {
+                  filters: "Make it your kind of day",
+                  log: "Your experience",
+                  niche: "How niche is it?",
+                  share: "Share a good day",
+                  activity: "Activity",
+                  about: "About Elsewhere",
+                  city: "Choose a city",
+                  "experience-share": "Share this experience",
+                  "experience-actions": "Your experience",
+                  menu: "Elsewhere",
+                }[sheet || "menu"]
+              }
+            </T>
+            <Icon
+              name="close"
+              label="Close dialog"
+              onPress={() => setSheet(null)}
+            />
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={s.sheetBody}
           >
-            <View style={s.sheet} accessibilityViewIsModal>
-              <View style={s.sheetHeader}>
-                <T style={s.heading}>
-                  {sheet === "filters"
-                    ? "Make it your kind of day"
-                    : sheet === "log"
-                      ? "Your experience"
-                      : sheet === "niche"
-                        ? "About nicheness"
-                        : sheet === "share"
-                          ? "Share a good day"
-                          : sheet === "activity"
-                            ? "Activity"
-                            : "Elsewhere"}
-                </T>
-                <Icon
-                  name="close"
-                  label="Close dialog"
-                  onPress={() => setSheet(null)}
-                />
-              </View>
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={s.sheetBody}
-              >
-                {sheetView()}
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
+            {sheetView()}
+          </ScrollView>
+        </BottomSheet>
       </SafeAreaView>
     </View>
   );

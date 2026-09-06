@@ -13,6 +13,7 @@
     "expo-clipboard": "~57.0.1",
     "expo-font": "~57.0.3",
     "expo-linking": "~57.0.9",
+    "expo-location": "~57.0.16",
     "expo-status-bar": "~57.0.1",
     "leaflet": "^1.9.4",
     "react": "19.2.3",

@@ -22,7 +22,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Elsewhere to find experiences near you."
+        }
+      ]
     ],
     "scheme": "elsewhere",
     "description": "Find your kind of good day in San Luis Obispo.",

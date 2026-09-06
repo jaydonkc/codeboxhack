@@ -76,12 +76,13 @@ export const icons: Record<string, string> = {
   "Local landmark": "camera-outline",
   "Self-guided walk": "walk-outline",
 };
-export function distance(x: Experience): number | null {
+export type SearchOrigin = { lat: number; lng: number };
+export function distance(x: Experience, origin?: SearchOrigin): number | null {
   if (x.lat === null || x.lng === null) return null;
-  // Explicit demo search origin: Downtown SLO, not the user's location.
+  // Use an explicit location when available; otherwise the SLO catalog origin.
   const rad = Math.PI / 180,
-    lat = 35.28,
-    lng = -120.6625;
+    lat = origin?.lat ?? 35.28,
+    lng = origin?.lng ?? -120.6625;
   const a =
     Math.sin(((x.lat - lat) * rad) / 2) ** 2 +
     Math.cos(lat * rad) *
@@ -103,8 +104,8 @@ export type Filters = {
   query: string;
   bounds?: MapBounds;
 };
-export function matches(x: Experience, f: Filters): boolean {
-  const dist = distance(x);
+export function matches(x: Experience, f: Filters, origin?: SearchOrigin): boolean {
+  const dist = distance(x, origin);
   return (
     (f.budget === null || (x.priceUSD !== null && x.priceUSD <= f.budget)) &&
     (!f.bounds ||

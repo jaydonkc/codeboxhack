@@ -14,20 +14,22 @@ Sign in to the **same Expo account in the CLI and Expo Go on iPhone**, then scan
 
 ## Scope
 
-Real activity listings link to their official sources. Any friend identities, reviews, and guides used to demonstrate social features are explicitly sample data. Personal saves, rankings, and awareness responses stay on this device; there is no production backend or account system yet.
+Real activity listings link to their official sources. Friend identities, community scores, and example guides are fixture data, disclosed in the app's **About Elsewhere** screen. Personal saves, rankings, and awareness responses stay on this device; there is no production backend or account system yet. Routine screens use product copy; data provenance and preview controls live in About rather than repeated footers.
 
 The proposed ranking and nicheness methods are our product design, not Beli's proprietary algorithms.
 
 ## Working prototype flows
 
 - Search 11 real activities; filter by admission budget, approximate radius, vibe, and suggested duration. Unknown prices do not satisfy a strict budget.
-- Pan and zoom the real map, select activity markers, search the visible area, reset to SLO, and switch to the same filtered list.
-- Native uses `react-native-maps` (Apple Maps on iOS); web uses Leaflet and OpenStreetMap tiles. Map tiles require internet. Points have source provenance and precision notes: some identify parks or peaks rather than entrances. Distances are straight-line from the explicit Downtown SLO origin, not the user's position or route length.
+- Pan and zoom the real map, select activity markers, search the visible area, recenter on your device location with permission, and switch to the same filtered list.
+- Native uses `react-native-maps` (Apple Maps on iOS); web uses Leaflet and OpenStreetMap tiles. Map tiles require internet. Points have source provenance and precision notes: some identify parks or peaks rather than entrances. Distances are straight-line from Downtown SLO until you use My location; then nearby filtering and distances use the returned device coordinates. Location denial, failure, and timeout leave the map in place and show an error.
 - Open an activity's official source or search its venue for access/directions.
-- Save Want to Try entries, log a reaction, compare experiences, tie or skip, and view the resulting personal scores in Been. Load sample history from You to demonstrate comparisons immediately; this is allowed only with an empty history.
-- Record an optional familiarity answer on this device. Nicheness remains Unknown because there is no measured city cohort. Review counts never stand in for familiarity.
+- Save Want to Try entries, log a reaction, compare experiences, tie or skip, and view the resulting personal scores in Been. Load sample history from About Elsewhere to demonstrate comparisons immediately; this is allowed only with an empty history.
+- Read editorial nicheness estimates for all 11 activities. Each score links to its research and explains how far the activity sits outside SLO's usual visitor circuit. These are labeled estimates, not measured community awareness; review counts are not used. The optional familiarity answer is stored separately and does not silently change the research estimate. See [nicheness research](docs/nicheness-research.md).
 - Build a city guide from completed rankings, reorder it, add separate guide notes, preview, and copy its text and official links. Private visit notes are omitted.
-- Set local/travel context and planning dates. Dates are stored for planning; they do not yet filter live availability. SLO is the only current destination.
+- Choose a search city from the header or menu. Only SLO has catalog entries; other cities show an empty state. My location searches the existing catalog nearby and does not fetch new venues.
+- Open an activity detail page modeled on the Beli restaurant page inspected through iPhone Mirroring: map header, venue title, rank/save actions, compact website/directions links, separate personal/friends/community score circles, nicheness and practical details. No unrelated or fabricated venue photos are used.
+- Open and dismiss menus with independently animated backdrop opacity and measured sheet movement, including reduced-motion support and retained closing content.
 
 ## Data and attribution
 

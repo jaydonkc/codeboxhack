@@ -170,3 +170,13 @@ test("unknown locations fail radius and map bounds, and geographic boundaries ar
     true,
   );
 });
+
+test("user coordinates determine distance and radius matches outside SLO", () => {
+  const museum = byId("sloma");
+  const atMuseum = { lat: museum.lat!, lng: museum.lng! };
+  const losAngeles = { lat: 34.0522, lng: -118.2437 };
+  assert.equal(distance(museum, atMuseum), 0);
+  assert.ok(distance(museum, losAngeles)! > 150);
+  assert.equal(matches(museum, { ...any, radius: 1 }, atMuseum), true);
+  assert.equal(matches(museum, { ...any, radius: 25 }, losAngeles), false);
+});

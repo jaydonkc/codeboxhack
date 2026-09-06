@@ -3,6 +3,7 @@ import type { Map as LeafletMap, LayerGroup } from "leaflet";
 import type { MapProps } from "./ExperienceMap";
 import type { MapBounds } from "../data/catalog";
 import "leaflet/dist/leaflet.css";
+import { useDeviceLocation } from "./useDeviceLocation";
 const buttonStyle: React.CSSProperties = {
   border: 0,
   borderRadius: 20,
@@ -20,7 +21,12 @@ export default function ExperienceMap({
   onSelect,
   onSearchArea,
   onResetArea,
+  origin,
+  onUserLocation,
+  height = 390,
+  compact = false,
 }: MapProps) {
+  const { locate, locating, locationError } = useDeviceLocation();
   const host = useRef<HTMLDivElement>(null),
     map = useRef<LeafletMap | null>(null),
     markers = useRef<LayerGroup | null>(null),
@@ -33,9 +39,19 @@ export default function ExperienceMap({
     let dead = false;
     import("leaflet").then((L) => {
       if (dead || !host.current) return;
-      const m = L.map(host.current, { scrollWheelZoom: false }).setView(
-        [35.298, -120.69],
-        12,
+      const point = compact ? items[0] : undefined;
+      const m = L.map(host.current, {
+        scrollWheelZoom: false,
+        zoomControl: !compact,
+        dragging: !compact,
+        doubleClickZoom: !compact,
+        touchZoom: !compact,
+        keyboard: !compact,
+      }).setView(
+        point?.lat != null && point?.lng != null
+          ? [point.lat, point.lng]
+          : origin ? [origin.lat, origin.lng] : [35.298, -120.69],
+        compact ? 15 : 12,
       );
       map.current = m;
       markers.current = L.layerGroup().addTo(m);
@@ -107,19 +123,19 @@ export default function ExperienceMap({
     <div
       style={{
         position: "relative",
-        height: 390,
+        height,
         width: "100%",
-        borderRadius: 20,
+        borderRadius: compact ? 0 : 20,
         overflow: "hidden",
         background: "#213f47",
       }}
     >
       <div
         ref={host}
-        aria-label="Interactive map of San Luis Obispo experiences"
+        aria-label="Interactive experience map"
         style={{ height: "100%", width: "100%" }}
       />
-      {onSearchArea && bounds && (
+      {!compact && onSearchArea && bounds && (
         <button
           style={{
             ...buttonStyle,
@@ -135,22 +151,27 @@ export default function ExperienceMap({
           Search this area
         </button>
       )}
-      <button
-        aria-label="Reset map to San Luis Obispo"
-        style={{
-          ...buttonStyle,
-          position: "absolute",
-          bottom: 30,
-          right: 12,
-          zIndex: 500,
-        }}
-        onClick={() => {
-          map.current?.setView([35.298, -120.69], 12);
-          onResetArea?.();
-        }}
-      >
-        All SLO
-      </button>
+      {!compact && (
+        <button
+          aria-label="Reset map to my location"
+          disabled={locating}
+          style={{
+            ...buttonStyle,
+            position: "absolute",
+            bottom: 30,
+            right: 12,
+            zIndex: 500,
+          }}
+          onClick={() => locate((point) => {
+            map.current?.setView([point.lat, point.lng], 12);
+            onResetArea?.();
+            onUserLocation?.(point);
+          })}
+        >
+          {locating ? "Locating…" : "My location"}
+        </button>
+      )}
+      {!!locationError && <div role="alert" style={{ position: "absolute", bottom: 80, left: 12, right: 12, zIndex: 500, background: "#22382b", color: "white", padding: 12 }}>{locationError}</div>}
       {tileError && (
         <div
           role="status"
