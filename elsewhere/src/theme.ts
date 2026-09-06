@@ -227,14 +227,6 @@ export const s = StyleSheet.create({
     paddingVertical: 7,
   },
   nicheText: { fontFamily: fonts.medium, color: C.purple, fontSize: 13 },
-  reason: {
-    borderTopWidth: 1,
-    borderTopColor: C.line,
-    paddingTop: 11,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 7,
-  },
   eyebrow: {
     color: C.green,
     fontFamily: fonts.bold,

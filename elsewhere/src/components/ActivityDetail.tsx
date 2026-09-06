@@ -351,9 +351,11 @@ export default function ActivityDetail({
           </View>
           {!!note?.trim() && <Text style={d.body}>{note}</Text>}
           {again && (
-            <View style={[d.inline, { marginTop: 8 }]}>
-              <Ionicons name="repeat-outline" color={C.green} size={17} />
-              <Text style={d.link}>You’d do this again</Text>
+            <View style={d.tags}>
+              <View style={[d.tag, d.inline]}>
+                <Ionicons name="repeat-outline" color={C.green} size={15} />
+                <Text style={d.tagText}>Repeatable</Text>
+              </View>
             </View>
           )}
           {onAddToGuide && (

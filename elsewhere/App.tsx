@@ -395,14 +395,6 @@ function Elsewhere() {
     }
     return w ? (explicit * 2 + total) / (2 + w) : explicit;
   }
-  function reason(e: Experience) {
-    if (data.preferences.some((p) => p.id === e.id && p.band === "liked"))
-      return "A good one to do again";
-    const v = e.vibes.filter((v) => data.interests.includes(v));
-    return v.length
-      ? `Fits your ${v.join(" + ").toLowerCase()} interests`
-      : "A different kind of day to try";
-  }
   const cityCatalog = catalog.filter(
     (e) =>
       searchOrigin ? (distance(e, searchOrigin) ?? Infinity) <= (filters.radius ?? 25) : e.city.replace(/^Near /, "").toLowerCase() === data.city.toLowerCase(),
@@ -511,11 +503,6 @@ function Elsewhere() {
                 Niche {getNicheness(e.id).score.toFixed(1)}
               </T>
             </Pressable>
-          </View>
-          <View style={s.reason}>
-            <I name="sparkles-outline" color={C.coral} size={15} />
-            <T style={[s.tiny, { flex: 1 }]}>{reason(e)}</T>
-            {!done.has(e.id) && <T style={s.tiny}>New to you</T>}
           </View>
           {page === "lists" && listTab === "done" && (
             <Button secondary onPress={() => log(e.id)}>
@@ -1017,9 +1004,9 @@ function Elsewhere() {
           style={[s.inputBox, { minHeight: 85, textAlignVertical: "top" }]}
         />
         <View style={s.between}>
-          <T>I’d do this again</T>
+          <T>Repeatable</T>
           <Switch
-            accessibilityLabel="I’d do this again"
+            accessibilityLabel="Repeatable"
             value={again}
             onValueChange={setAgain}
             trackColor={{ true: "#608451", false: C.line }}
