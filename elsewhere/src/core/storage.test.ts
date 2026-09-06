@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { localDateKey, parseVisitDate } from "./visitDate";
 import {
   completeOnboarding, createFreshState, createStateWriter, dismissFirstSavePrompt,
   parseStoredState, STORAGE_KEY, toggleDraftInterest, toggleSavedExperience,
@@ -23,13 +24,43 @@ test("migrating existing history preserves choices, visits, guides and local det
     interests: ["Explore", "Learn"], demoSocial: true, city: "Los Angeles",
   };
   const migrated = parseStoredState(JSON.stringify(legacy));
-  const { version, onboarding, ...personal } = migrated;
+  const { version, onboarding, sampleVisitDatesAdded, ...personal } = migrated;
   const { version: oldVersion, ...original } = legacy;
   assert.equal(version, 2);
   assert.deepEqual(personal, original);
   assert.equal(onboarding.step, "complete");
   assert.equal(onboarding.firstSavePromptDismissed, true);
   assert.deepEqual(parseStoredState(JSON.stringify(migrated)), migrated);
+});
+
+test("existing undated Been entries get sample dates once while entered dates survive", () => {
+  const { sampleVisitDatesAdded, ...oldState } = createFreshState();
+  const restored = parseStoredState(JSON.stringify({
+    ...oldState,
+    preferences: [
+      { id: "sloma", band: "liked", rank: 1 },
+      { id: "leaning-pine-arboretum", band: "liked", rank: 2, visitedOn: "2026-01-15" },
+    ],
+  }));
+  const date = restored.preferences[0].visitedOn!;
+  assert.ok(parseVisitDate(date));
+  const earliest = new Date();
+  earliest.setDate(earliest.getDate() - 180);
+  assert.ok(date >= localDateKey(earliest) && date < localDateKey());
+  assert.equal(restored.preferences[1].visitedOn, "2026-01-15");
+  assert.deepEqual(parseStoredState(JSON.stringify(restored)), restored);
+  restored.preferences[0].visitedOn = undefined;
+  assert.equal(parseStoredState(JSON.stringify(restored)).preferences[0].visitedOn, undefined);
+});
+
+test("saved Hangout interests and onboarding drafts migrate to Community", () => {
+  const state = createFreshState();
+  state.interests = ["Hangout", "Community", "Explore"];
+  state.onboarding.draftInterests = ["Hangout", "Relax"];
+  const restored = parseStoredState(JSON.stringify(state));
+  assert.deepEqual(restored.interests, ["Community", "Explore"]);
+  assert.deepEqual(restored.onboarding.draftInterests, ["Community", "Relax"]);
+  assert.deepEqual(parseStoredState(JSON.stringify(restored)), restored);
 });
 
 test("an empty legacy history is an existing user, including an intentionally empty guide", () => {

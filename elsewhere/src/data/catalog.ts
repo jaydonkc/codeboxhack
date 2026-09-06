@@ -10,6 +10,8 @@ export type Experience = {
   city: string;
   priceUSD: number | null;
   priceNote: string;
+  priceEstimateUSD?: number;
+  priceEstimateNote?: string;
   durationMinutesSuggested: number;
   durationNote: string;
   scheduleNote: string;
@@ -40,7 +42,7 @@ export const byId = (id: string) => catalog.find((x) => x.id === id)!;
 export const VIBES = [
   "Relax",
   "Active",
-  "Hangout",
+  "Community",
   "Creative",
   "Learn",
   "Explore",
@@ -123,9 +125,20 @@ export function matches(x: Experience, f: Filters, origin?: SearchOrigin): boole
       .includes(f.query.toLocaleLowerCase().trim())
   );
 }
+export function priceLevel(x: Experience): string {
+  const price = x.priceUSD ?? x.priceEstimateUSD;
+  if (price === undefined) return "Price varies";
+  if (price === 0) return "Free";
+  if (price <= 15) return "$";
+  if (price <= 30) return "$$";
+  if (price <= 50) return "$$$";
+  return "$$$$";
+}
+
 export function priceLabel(x: Experience) {
   return x.priceUSD === null
-    ? "Check price"
+    ? x.priceEstimateUSD === undefined ? "Price varies"
+      : x.priceEstimateUSD === 0 ? "Free (est.)" : `~$${x.priceEstimateUSD} / person`
     : x.priceUSD === 0
       ? "Free admission"
       : `$${x.priceUSD} admission`;

@@ -9,7 +9,7 @@ const useNativeDriver = Platform.OS !== "web";
 const descriptions: Record<string, { icon: React.ComponentProps<typeof Ionicons>["name"]; detail: string }> = {
   Relax: { icon: "leaf-outline", detail: "Slow down" },
   Active: { icon: "trail-sign-outline", detail: "Get moving" },
-  Hangout: { icon: "people-outline", detail: "Good company" },
+  Community: { icon: "people-outline", detail: "Community spaces" },
   Creative: { icon: "color-palette-outline", detail: "Make something" },
   Learn: { icon: "book-outline", detail: "Stay curious" },
   Explore: { icon: "compass-outline", detail: "Somewhere new" },

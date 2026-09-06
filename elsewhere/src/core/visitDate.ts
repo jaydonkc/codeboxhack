@@ -3,6 +3,13 @@ export function localDateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+/** Sample dates for the preview, spread across the previous six months. */
+export function randomVisitDate(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 1 - Math.floor(Math.random() * 180));
+  return localDateKey(date);
+}
+
 export function parseVisitDate(value: unknown): Date | null {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [year, month, day] = value.split("-").map(Number);

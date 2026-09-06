@@ -37,6 +37,7 @@ import {
   icons,
   matches,
   priceLabel,
+  priceLevel,
   VIBES,
 } from "./src/data/catalog";
 import ExperienceMap from "./src/components/ExperienceMap";
@@ -48,12 +49,13 @@ import { useReducedMotion } from "./src/components/useReducedMotion";
 import { completeOnboarding, dismissFirstSavePrompt, toggleSavedExperience } from "./src/core/storage";
 import ActivityPicker from "./src/components/ActivityPicker";
 import VisitDateField from "./src/components/VisitDateField";
-import GuideLibrary, { GuideCover, type GuideLibraryTab } from "./src/components/GuideLibrary";
+import FriendsPage, { GuideCover, type FriendsTab } from "./src/components/GuideLibrary";
 import GuideDetail from "./src/components/GuideDetail";
 import { exampleGuides, type ExperienceGuide } from "./src/data/guides";
+import { demoFollows } from "./src/data/friends";
 import DistanceSlider from "./src/components/DistanceSlider";
 import { distanceSliderLabel, PRICE_OPTIONS, priceFilterLabel } from "./src/core/filterOptions";
-import { formatVisitDate, localDateKey } from "./src/core/visitDate";
+import { formatVisitDate, localDateKey, randomVisitDate } from "./src/core/visitDate";
 import { getNicheness } from "./src/data/nicheness";
 import { createPersonalGuide, isFavorite, saveRankedVisit, updateVisitDetails } from "./src/core/personal";
 import {
@@ -69,6 +71,8 @@ import {
 
 type Page = "discover" | "lists" | "friends" | "you" | "detail" | "guide";
 type Sheet =
+  | "profile-interests"
+  | "profile-share"
   | "filters"
   | "city"
   | "log"
@@ -83,9 +87,9 @@ type Sheet =
   | "experience-actions"
   | null;
 const seed: Preference[] = [
-  { id: "sloma", band: "liked", rank: 1, again: true },
-  { id: "leaning-pine-arboretum", band: "liked", rank: 2, again: true },
-  { id: "downtown-creek-walk", band: "liked", rank: 3, again: true },
+  { id: "sloma", band: "liked", rank: 1, again: true, visitedOn: randomVisitDate() },
+  { id: "leaning-pine-arboretum", band: "liked", rank: 2, again: true, visitedOn: randomVisitDate() },
+  { id: "downtown-creek-walk", band: "liked", rank: 3, again: true, visitedOn: randomVisitDate() },
 ];
 const bands: Record<Band, string> = {
   liked: "Liked it",
@@ -214,7 +218,8 @@ function Elsewhere() {
     [note, setNote] = useState(""),
     [again, setAgain] = useState(false),
     [visitedOn, setVisitedOn] = useState<string | undefined>();
-  const [guideLibraryTab, setGuideLibraryTab] = useState<GuideLibraryTab>("explore");
+  const [rankingId, setRankingId] = useState("sloma");
+  const [friendsTab, setFriendsTab] = useState<FriendsTab>("activity");
   const [guideMap, setGuideMap] = useState(false);
   const [toast, setToast] = useState(""),
     [toastSavedId, setToastSavedId] = useState<string | null>(null),
@@ -317,6 +322,7 @@ function Elsewhere() {
     setSheet(null);
   }
   function log(id: string) {
+    setRankingId(id);
     setSelected(id);
     setSession(null);
     const old = data.preferences.find((p) => p.id === id);
@@ -456,7 +462,7 @@ function Elsewhere() {
           <T style={s.muted}>
             {e.vibes.join(" · ")}
             {"\n"}
-            {priceLabel(e)} · ~{e.durationMinutesSuggested} min ·{" "}
+            {page === "lists" && listTab === "done" ? priceLevel(e) : priceLabel(e)} · ~{e.durationMinutesSuggested} min ·{" "}
             {distance(e, searchOrigin)?.toFixed(1)} mi
           </T>
           <View style={s.wrap}>
@@ -551,8 +557,10 @@ function Elsewhere() {
                 key={key}
                 style={[s.tab, active && s.tabActive]}
                 onPress={() => {
-                  if (key === "guides")
+                  if (key === "guides") {
+                    setFriendsTab("guides");
                     nav("friends");
+                  }
                   else if (key === "discover") nav("discover");
                   else {
                     setListTab(key);
@@ -608,7 +616,7 @@ function Elsewhere() {
             {results.length} results{filters.bounds ? " · map area" : ""}
           </T>
           <View style={s.row}>
-            {data.demoSocial && (["Friends", "Everyone"] as const).map((a) => (
+            {!map && data.demoSocial && (["Friends", "Everyone"] as const).map((a) => (
               <Pressable
                 key={a}
                 accessibilityRole="button"
@@ -701,7 +709,6 @@ function Elsewhere() {
               </Button>
             </View>
           )}
-          {page === "discover" && <View style={{ marginVertical: 18 }}>{teaser()}</View>}
         </View>
       </>
     );
@@ -783,7 +790,10 @@ function Elsewhere() {
       saved={data.saved}
       map={guideMap}
       mapView={guideMap && <ExperienceMap items={guideIds.map(byId)} selected={selected} onSelect={detail} />}
-      onBack={() => nav("friends")}
+      onBack={() => {
+        setFriendsTab(activeGuide.id === "you" ? "mine" : "guides");
+        nav("friends");
+      }}
       onShare={() => setSheet("share")}
       onMap={() => setGuideMap(!guideMap)}
       onSaveAll={() => {
@@ -813,55 +823,45 @@ function Elsewhere() {
     />;
   }
   function profile() {
+    const rows = [
+      { label: "Been", icon: "checkmark-circle-outline", count: data.preferences.length,
+        onPress: () => { clearFilters(); setListTab("done"); setMap(false); nav("lists"); } },
+      { label: "Want to try", icon: "bookmark", count: data.saved.length,
+        onPress: () => { clearFilters(); setListTab("saved"); setMap(false); nav("lists"); } },
+      { label: "Recs for you", icon: "heart-circle-outline",
+        onPress: () => { clearFilters(); setMode("all"); setMap(false); nav("discover"); } },
+    ];
     return (
-      <View style={[s.pad, s.stack]}>
-        <Image
-          source={require("./assets/profile/jaydon-beli.png")}
-          accessibilityLabel="Your profile photo"
-          style={{ width: 70, height: 70, borderRadius: 35 }}
-          resizeMode="cover"
-        />
-        <T style={s.serif}>Your kind of{"\n"}good day.</T>
-        <View style={[s.row, { gap: 25 }]}>
-          {[
-            [data.preferences.length, "experiences"],
-            [data.saved.length, "want to try"],
-            [data.guide.length, "in your guide"],
-          ].map(([n, label]) => (
-            <View key={label}>
-              <T style={s.title}>{n}</T>
-              <T style={s.tiny}>{label}</T>
-            </View>
-          ))}
+      <View>
+        <View style={{ alignItems: "center", paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 }}>
+          <Image source={require("./assets/profile/jaydon-beli.png")} accessibilityLabel="Your profile photo"
+            style={{ width: 104, height: 104, borderRadius: 52, marginBottom: 18 }} resizeMode="cover" />
+          <T style={[s.heading, { fontSize: 20 }]}>@jaydonkc</T>
+          <T style={[s.muted, { marginTop: 5 }]}>{data.city}</T>
+          <View style={{ flexDirection: "row", paddingVertical: 18, width: "100%" }}>
+            {([ ["followers", "Followers"], ["following", "Following"] ] as const).map(([key, label]) => (
+              <View key={key} style={{ flex: 1, alignItems: "center", gap: 4 }}>
+                <T style={s.heading}>{data.demoSocial ? demoFollows[key].length : 0}</T>
+                <T style={s.muted}>{label}</T>
+              </View>
+            ))}
+          </View>
+          <View style={{ flexDirection: "row", gap: 8, width: "100%" }}>
+            <View style={{ flex: 1 }}><Button secondary onPress={() => setSheet("profile-interests")}>Edit interests</Button></View>
+            <View style={{ flex: 1 }}><Button secondary onPress={() => setSheet("profile-share")}>Share profile</Button></View>
+          </View>
         </View>
-        <T style={s.heading}>You’re into</T>
-        <View style={s.wrap}>
-          {VIBES.map((v) => (
-            <Pill
-              key={v}
-              label={v}
-              active={data.interests.includes(v)}
-              onPress={() =>
-                setData((d) => ({
-                  ...d,
-                  interests: d.interests.includes(v)
-                    ? d.interests.filter((z) => z !== v)
-                    : [...d.interests, v],
-                }))
-              }
-            />
-          ))}
-        </View>
-        <Button secondary onPress={() => guide("you")}>
-          My SLO guide
-        </Button>
-        <View style={s.separator} />
-        <Button secondary onPress={chooseCity}>
-          Search city
-        </Button>
-        <Button secondary onPress={() => setSheet("about")}>
-          About Elsewhere
-        </Button>
+        {rows.map(({ label, icon, count, onPress }) => (
+          <Pressable key={label} accessibilityRole="button" onPress={onPress}
+            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 16,
+              paddingHorizontal: 24, paddingVertical: 18, minHeight: 64,
+              borderBottomWidth: 1, borderBottomColor: C.line, opacity: pressed ? 0.65 : 1 })}>
+            <I name={icon} size={26} />
+            <T style={[s.heading, { flex: 1 }]}>{label}</T>
+            {count !== undefined && <T style={s.heading}>{count}</T>}
+            <I name="chevron-forward" color={C.muted} size={20} />
+          </Pressable>
+        ))}
       </View>
     );
   }
@@ -892,6 +892,8 @@ function Elsewhere() {
     );
   }
   function logView() {
+    // Map/detail selection can change independently while a ranking is open.
+    const x = byId(session?.id ?? rankingId);
     const opponent = session ? currentOpponent(session) : null,
       value = session?.status === "placed" ? scores[session.id] : null;
     function answer(a: RankingAnswer) {
@@ -1026,6 +1028,31 @@ function Elsewhere() {
     );
   }
   function sheetView() {
+    if (sheet === "profile-interests") return <>
+      <T style={s.heading}>Edit your interests</T>
+      <View style={s.wrap}>
+        {VIBES.map((v) => <Pill key={v} label={v} active={data.interests.includes(v)}
+          onPress={() => setData((d) => ({ ...d, interests: d.interests.includes(v)
+            ? d.interests.filter((value) => value !== v) : [...d.interests, v] }))} />)}
+      </View>
+      <Button secondary onPress={chooseCity}>Change city</Button>
+      <Button onPress={() => setSheet(null)}>Done</Button>
+    </>;
+    if (sheet === "profile-share") {
+      const text = `Jaydon Chen · @jaydonkc\nElsewhere · ${data.city}\n${data.preferences.length} experiences · ${data.saved.length} want to try`;
+      return <>
+        <T style={s.heading}>Share profile</T>
+        <T selectable style={s.muted}>{text}</T>
+        <Button onPress={async () => {
+          try {
+            await Clipboard.setStringAsync(text);
+            setSheet(null);
+            notify("Profile copied. Paste it to share.");
+          } catch { notify("Couldn’t copy. Select the text above."); }
+        }}>Copy profile</Button>
+      </>;
+    }
+
     if (sheet === "add-activity") return <ActivityPicker onSelect={log} />;
     if (sheet === "log") return logView();
     if (sheet === "edit-visit")
@@ -1356,7 +1383,7 @@ function Elsewhere() {
         {[
           ["you", "person-outline", "Your profile"],
           ["lists", "bookmark-outline", "Your experiences"],
-          ["friends", "book-outline", "Guides"],
+          ["friends", "people-outline", "Friends"],
         ].map(([p, icon, label]) => (
           <Pressable
             accessibilityRole="button"
@@ -1418,12 +1445,12 @@ function Elsewhere() {
     return (
       <View style={s.outer}>
         <StatusBar style="light" />
-        <SafeAreaView style={[s.app, s.pad, s.stack, { justifyContent: "center" }]} edges={["top", "bottom"]}>
+        <SafeAreaView style={[s.app, s.pad, { justifyContent: "center", gap: 32 }]} edges={["top", "bottom"]}>
           <T style={s.wordmark}>elsewhere</T>
           <Image source={require("./assets/profile/jaydon-beli.png")} accessibilityLabel="Your profile photo"
             style={{ width: 96, height: 96, borderRadius: 48, marginTop: 24 }} resizeMode="cover" />
           <T accessibilityRole="header" style={s.serif}>Welcome back, Jaydon.</T>
-          <T style={s.muted}>Your demo profile, saved experiences, and personal rankings are ready.</T>
+          <View style={{ gap: 12, marginTop: 40 }}>
           <Button onPress={() => {
             appOpacity.setValue(reducedMotion === false ? 0 : 1);
             setEnteringDiscover(true);
@@ -1434,6 +1461,7 @@ function Elsewhere() {
             nav("discover");
           }}>Continue as Jaydon</Button>
           <Button secondary onPress={() => setLaunchStep("onboarding")}>Back</Button>
+          </View>
         </SafeAreaView>
       </View>
     );
@@ -1447,7 +1475,14 @@ function Elsewhere() {
             <T style={{ color: C.green }}>Retry save</T>
           </Pressable>
         </View>}
-        {page !== "detail" && (
+        {page === "you" && <View style={s.header}>
+          <T style={s.heading}>Jaydon Chen</T>
+          <View style={{ flexDirection: "row" }}>
+            <Icon name="share-outline" label="Share profile" onPress={() => setSheet("profile-share")} />
+            <Icon name="menu-outline" label="Open menu" onPress={() => setSheet("menu")} />
+          </View>
+        </View>}
+        {page !== "detail" && page !== "you" && (
           <View style={s.header}>
             <Pressable
               accessibilityRole="button"
@@ -1510,17 +1545,19 @@ function Elsewhere() {
           ) : page === "you" ? (
             profile()
           ) : (
-            <GuideLibrary
-              examples={data.demoSocial ? exampleGuides : []}
+            <FriendsPage
+              guides={data.demoSocial ? exampleGuides : []}
+              demoSocial={data.demoSocial}
               personal={personalGuide}
               created={data.guideCreated || data.guide.length > 0}
-              tab={guideLibraryTab}
-              onTab={setGuideLibraryTab}
-              onOpen={guide}
               onCreate={() => {
                 setData(createPersonalGuide);
                 guide("you");
               }}
+              tab={friendsTab}
+              onTab={setFriendsTab}
+              onOpenGuide={guide}
+              onOpenActivity={detail}
             />
           )}
         </ScrollView>
@@ -1529,7 +1566,7 @@ function Elsewhere() {
             ["discover", "compass-outline", "Discover"],
             ["lists", "bookmark-outline", "My lists"],
             ["add-activity", "add", "Add an activity"],
-            ["friends", "book-outline", "Guides"],
+            ["friends", "people-outline", "Friends"],
             ["you", "person-outline", "You"],
           ].map(([p, icon, label]) => {
             if (p === "add-activity") return (
@@ -1594,6 +1631,8 @@ function Elsewhere() {
               {
                 {
                   filters: "Make it your kind of day",
+                  "profile-interests": "Edit interests",
+                  "profile-share": "Share profile",
                   log: "Your experience",
                   "add-activity": "Add an activity",
                   "edit-visit": "Edit your visit",

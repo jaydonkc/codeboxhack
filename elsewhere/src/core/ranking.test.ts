@@ -346,3 +346,43 @@ test("invalid placed ranks are treated as pending", () => {
   });
   assert.deepEqual(beginRanking("x", "liked", preferences).groups, []);
 });
+
+test("every catalog activity excludes itself throughout every reranking answer path", async () => {
+  const { catalog } = await import("../data/catalog");
+  for (const band of ["liked", "okay", "disliked"] as const) {
+    // Include ties and duplicate stored rows, as well as ordinary ranks.
+    for (const tied of [false, true]) {
+      const preferences: Preference[] = catalog.map(({ id }, index) => ({
+        id, band, rank: tied ? Math.floor(index / 2) * 2 + 1 : index + 1,
+      }));
+      for (const { id } of catalog) {
+        const original = [...preferences, preferences.find((p) => p.id === id)!];
+        const pending = [beginRanking(id, band, original)];
+        while (pending.length) {
+          const session = pending.pop()!;
+          assert.ok(!session.groups.flat().includes(id));
+          if (session.status !== "active") {
+            assert.equal(currentOpponent(session), null);
+            assert.equal(finishRanking(session, original).filter((p) => p.id === id).length, 1);
+            continue;
+          }
+          const opponent = currentOpponent(session);
+          assert.ok(opponent, `Missing opponent for ${id}`);
+          assert.notEqual(opponent, id, `Self-comparison for ${id}`);
+          for (const answer of ["new", "existing", "tie", "skip"] as const)
+            pending.push(answerRanking(session, answer));
+        }
+        assert.equal(currentOpponent(beginRanking(id, band, [{ id, band, rank: 1 }])), null);
+      }
+    }
+  }
+});
+
+test("opponent selection rejects self-only groups and uses another member of a tie", () => {
+  const base = beginRanking("a", "liked", liked("b", "c"));
+  const selfOnly = { ...base, groups: [["a"], ["c"]] };
+  assert.equal(currentOpponent(selfOnly), "c");
+  const tiedSelf = { ...base, groups: [["a", "b"], ["c"]] };
+  assert.equal(currentOpponent(tiedSelf), "b");
+  assert.equal(currentOpponent({ ...base, groups: [["a"]], hi: 1 }), null);
+});

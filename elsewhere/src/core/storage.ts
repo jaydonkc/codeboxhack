@@ -1,6 +1,6 @@
 import { catalog, VIBES } from "../data/catalog";
 import { Preference } from "./ranking";
-import { parseVisitDate } from "./visitDate";
+import { parseVisitDate, randomVisitDate } from "./visitDate";
 
 // Keep the original key so an upgrade finds and migrates existing histories.
 export const STORAGE_KEY = "elsewhere-demo-v1";
@@ -14,6 +14,7 @@ export type OnboardingState = {
 
 export type Stored = {
   version: 2;
+  sampleVisitDatesAdded: boolean;
   saved: string[];
   preferences: Preference[];
   awareness: Record<string, string>;
@@ -29,6 +30,7 @@ export type Stored = {
 export function createFreshState(): Stored {
   return {
     version: 2,
+    sampleVisitDatesAdded: true,
     saved: [],
     preferences: [],
     awareness: {},
@@ -53,7 +55,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === "string"))] : [];
 const ids = (value: unknown) => strings(value).filter((id) => validIds.has(id));
-const interests = (value: unknown) => strings(value).filter((vibe) => VIBES.includes(vibe));
+const interests = (value: unknown) => [...new Set(strings(value)
+  .map((vibe) => vibe === "Hangout" ? "Community" : vibe)
+  .filter((vibe) => VIBES.includes(vibe)))];
 const textRecord = (value: unknown): Record<string, string> =>
   isRecord(value)
     ? Object.fromEntries(Object.entries(value).filter((entry) => typeof entry[1] === "string")) as Record<string, string>
@@ -87,7 +91,10 @@ export function parseStoredState(raw: string | null): Stored {
       ...r,
       note: typeof r.note === "string" ? r.note : undefined,
       again: typeof r.again === "boolean" ? r.again : undefined,
-      visitedOn: parseVisitDate(r.visitedOn) ? r.visitedOn : undefined,
+      // One-time, user-requested sample dates for existing undated Been entries.
+      // Once migrated, clearing a date stays cleared on subsequent loads.
+      visitedOn: parseVisitDate(r.visitedOn) ? r.visitedOn
+        : !p.sampleVisitDatesAdded && r.visitedOn == null ? randomVisitDate() : undefined,
     })),
     awareness: textRecord(p.awareness),
     guide,

@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { type ActivityPhoto } from "../data/activityPhotos";
 import { C, fonts } from "../theme";
@@ -172,7 +172,8 @@ export default function ActivityPhotos({ photos, venue }: { photos: ActivityPhot
         presentationStyle="fullScreen"
         onRequestClose={() => setViewerStart(null)}
       >
-        <SafeAreaView style={p.viewer}>
+        <SafeAreaProvider style={p.viewer}>
+        <SafeAreaView style={p.viewer} edges={["top", "right", "bottom", "left"]}>
           <View style={p.viewerHeader}>
             <Text numberOfLines={2} style={p.viewerTitle}>{venue}</Text>
             <Pressable
@@ -230,6 +231,7 @@ export default function ActivityPhotos({ photos, venue }: { photos: ActivityPhot
             )}
           </View>
         </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
     </View>
   );

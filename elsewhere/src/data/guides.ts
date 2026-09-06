@@ -16,7 +16,7 @@ export const exampleGuides: ExperienceGuide[] = [
   {
     id: "emma",
     title: "A slow weekend in SLO",
-    author: "Emma",
+    author: "Jacob",
     city: "San Luis Obispo",
     description: "A little art, a garden walk, and something handmade.",
     coverId: "leaning-pine-arboretum",
@@ -31,7 +31,7 @@ export const exampleGuides: ExperienceGuide[] = [
   {
     id: "art-and-making",
     title: "Art & making",
-    author: "Elsewhere",
+    author: "Rayan",
     city: "San Luis Obispo",
     description: "Gallery time, local history, and a hands-on pottery class.",
     coverId: "anam-cre-pottery",
@@ -41,7 +41,7 @@ export const exampleGuides: ExperienceGuide[] = [
   {
     id: "get-outside",
     title: "Get outside",
-    author: "Elsewhere",
+    author: "Usman",
     city: "San Luis Obispo",
     description: "Summit trails and gardens for a day outdoors.",
     coverId: "bishop-peak",
@@ -51,7 +51,7 @@ export const exampleGuides: ExperienceGuide[] = [
   {
     id: "downtown",
     title: "Around downtown",
-    author: "Elsewhere",
+    author: "Jacob",
     city: "San Luis Obispo",
     description: "Art, local landmarks, and the Thursday evening market.",
     coverId: "downtown-farmers-market",

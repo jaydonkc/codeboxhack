@@ -77,6 +77,7 @@ function opponentIndex(session: RankingSession): number | null {
   let best: number | null = null;
   for (let index = session.lo; index < session.hi; index += 1) {
     if (skipped.has(index)) continue;
+    if (!session.groups[index]?.some((id) => id !== session.id)) continue;
     if (best === null || Math.abs(index - midpoint) < Math.abs(best - midpoint))
       best = index;
   }
@@ -131,7 +132,9 @@ export function beginRanking(
 /** A tied group is represented by its first experience; no opponent means done. */
 export function currentOpponent(session: RankingSession): string | null {
   const index = opponentIndex(session);
-  return index === null ? null : session.groups[index][0];
+  return index === null
+    ? null
+    : session.groups[index].find((id) => id !== session.id) ?? null;
 }
 
 /**

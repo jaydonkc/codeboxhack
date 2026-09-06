@@ -390,8 +390,11 @@ export default function ActivityDetail({
         <Information icon="time-outline" title="Hours & access">
           <Text style={d.informationText}>{activity.scheduleNote}</Text>
         </Information>
-        <Information icon="ticket-outline" title="Admission">
-          <Text style={d.informationText}>{activity.priceNote}</Text>
+        <Information icon="ticket-outline" title={activity.priceUSD === null ? "Estimated cost" : "Admission"}>
+          <Text style={d.informationText}>
+            {activity.priceUSD === null && activity.priceEstimateNote
+              ? activity.priceEstimateNote : activity.priceNote}
+          </Text>
         </Information>
         <Information icon="location-outline" title="Location">
           <Text style={d.informationText}>{activity.locationNote}</Text>

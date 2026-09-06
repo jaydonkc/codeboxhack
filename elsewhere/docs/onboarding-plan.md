@@ -14,7 +14,7 @@ Help a new user find and save one experience they want to try. Aim for roughly 3
 
 - Headline: **Welcome. What are you into?**
 - Supporting copy: “Pick a few. You can change these anytime.”
-- Use the existing choices: **Relax, Active, Hangout, Creative, Learn, Explore**.
+- Use the existing choices: **Relax, Active, Community, Creative, Learn, Explore**.
 - Start with nothing selected for new users. Allow any number of selections; no required minimum.
 - Primary action: **Show me experiences**. With zero selections, continue with the general catalog order.
 - Secondary action: **Skip for now**. Discard selections from this step and use the general catalog order.

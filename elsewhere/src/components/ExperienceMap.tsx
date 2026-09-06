@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable } from "react-native";
 import MapView, { Marker, Region } from "react-native-maps";
 import { Experience, MapBounds, SearchOrigin } from "../data/catalog";
@@ -34,9 +34,12 @@ export default function ExperienceMap({
   height = 390,
   compact = false,
 }: MapProps) {
-  const { locate, locating, locationError } = useDeviceLocation();
+  const { locate, locating, locationError, hasLocationPermission, requestPermission } = useDeviceLocation();
   const ref = useRef<MapView>(null),
     [bounds, setBounds] = useState<MapBounds | null>(null);
+  useEffect(() => {
+    if (!compact) void requestPermission();
+  }, [compact, requestPermission]);
   return (
     <View
       style={{
@@ -62,6 +65,8 @@ export default function ExperienceMap({
               : origin ? { ...initial, latitude: origin.lat, longitude: origin.lng } : initial
         }
         userInterfaceStyle="dark"
+        showsUserLocation={hasLocationPermission}
+        showsMyLocationButton={false}
         scrollEnabled={!compact}
         zoomEnabled={!compact}
         rotateEnabled={!compact}
